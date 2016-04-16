@@ -43,8 +43,8 @@ boolean B_set = false;
 volatile unsigned int encoder0Pos = 0;
 volatile unsigned int encoderValue = 0;  // a counter for the dial
 static boolean rotating=false;      // debounce management
-unsigned int lastReportedPos = 1;   // change management
-volatile unsigned int encoderPos = 0;  // a counter for the dial
+unsigned int lastReportedPos = 60;   // change management
+volatile unsigned int encoderPos = 60;  // a counter for the dial
 
 enum PinAssignments {
   encoderPinA = 3,   // scroll right
@@ -216,12 +216,19 @@ void setup()
      DoTuneP.addAfter(DoTuneI);
      DoTuneI.addAfter(DoTuneD);
      DoTuneD.addAfter(DoRun);
-  
-     DoRun.addLeft(TurnOff);
+         
      DoAutotune.addLeft(TurnOff);
      DoTuneP.addLeft(TurnOff);
      DoTuneI.addLeft(TurnOff);
      DoTuneD.addLeft(TurnOff);
+     DoRun.addLeft(TurnOff);
+
+     TurnOff.addAfter(TurnOff);
+     TurnOff.addBefore(TurnOff);
+
+     menu.moveDown();  
+     menu.moveRight();
+     menu.use();
    }
 
 // ************************************************
@@ -242,18 +249,17 @@ void loop()
       menu.moveUp();                  //goto next menu choice
       lastReportedPos = encoderPos;
     }
-  }
-  if (digitalRead(buttonPin) == LOW){
-    while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
-    {
-      if (opState != RUN){
+    if (digitalRead(buttonPin) == LOW){
+      while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
+      {
         menu.use();
         menu.moveRight();               //Select next menu down or run action
       }
     }
   }
-  else if (digitalRead(backButton) == LOW){
+  if (digitalRead(backButton) == LOW){
     while (digitalRead(backButton) == LOW) delay(10);
+    Serial.print("backbutton");
     menu.moveLeft();                //go back to previous menu
   }
  
@@ -261,7 +267,7 @@ void loop()
    switch (opState)
    {
    case OFF:
-      Off();
+      Off();  //add code to turn motor off
       break;
     case RUN:
       Run();
@@ -276,6 +282,7 @@ void loop()
       TuneD();
       break;
    }
+   
 }
 // ************************************************
 // Start the Auto-Tuning cycle
@@ -398,14 +405,17 @@ void LoadParameters()
    }  
 }
 
-void userInput(int menuFlag, float scale) { //Flag to interperate where its from, scale of scroll, defualt 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
+void userInput(int menuFlag, float scale, double prior) { //Flag to interperate where its from, scale of scroll, defualt 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
   while (digitalRead(buttonPin) == LOW) delay(10);
   float numInput;
   boolean inputFlag = true;
+  encoderPos = prior / scale;
   //calculating = true;
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(F("New Input: "));
+  lcd.setCursor(0, 1);
+  lcd.print(prior);
   //encoderValue = 1;
   while (inputFlag == true) {
     if (encoderPos < 0 || encoderPos > 1000) encoderPos = 0;
@@ -441,6 +451,7 @@ void userInput(int menuFlag, float scale) { //Flag to interperate where its from
   }
   //calculating = false;
   while (digitalRead(buttonPin) == LOW) delay(10);
+  lcd.clear();
 }
 // ************************************************
 // Return to normal control
@@ -533,7 +544,7 @@ void DriveOutput()
 // ************************************************
 void TuneP()
 {
-    userInput(2, 10);
+    userInput(2, 10, Kp);
     //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
     //{
        opState = RUN;
@@ -551,7 +562,7 @@ void TuneP()
 // ************************************************
 void TuneI()
 {
-    userInput(3, 0.1);
+    userInput(3, 0.1, Ki);
     //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
     //{
        opState = RUN;
@@ -569,7 +580,7 @@ void TuneI()
 // ************************************************
 void TuneD()
 {
-    userInput(4, 0.1);
+    userInput(4, 0.1, Kd);
     //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
     //{
        opState = RUN;
@@ -610,18 +621,10 @@ void Run()
 //        return;
 //      }
 //    }
-      if (digitalRead(buttonPin) == LOW){
-        while (digitalRead(buttonPin) == LOW) delay(10);
-        userInput(1,0.25);
-      }
-      else if (digitalRead(backButton) == LOW){
-        while (digitalRead(backButton) == LOW) delay(10);
-        opState = OFF;
-        menu.moveUp();
-        menu.use();
-      }
+
       DoControl();
       DriveOutput();
+      lcd.setCursor(0,0);
       lcd.print(F("Sp: "));
       lcd.print(Setpoint);
       lcd.write(1);
@@ -656,7 +659,18 @@ void Run()
         Serial.print(",");
         Serial.println(Output);
       }
-
+//    if (digitalRead(buttonPin) == LOW){
+//      while (digitalRead(buttonPin) == LOW) delay(10);
+    if (lastReportedPos != encoderPos){
+      userInput(1,0.25,Setpoint);
+      opState = RUN;
+    }
+    else if (digitalRead(backButton) == LOW){
+      while (digitalRead(backButton) == LOW) delay(10);
+      opState = OFF;
+      menu.moveUp();
+      //menu.use();
+    }
     delay(100);
  }
 
@@ -665,7 +679,7 @@ void Run()
   Serial.print(F("Menu use "));
   Serial.println(used.item.getName());
   if (used.item == TurnOff){
-    opState = OFF;
+    menu.moveRight();
     //Off();
   }
   else if (used.item == DoRun) {
@@ -676,7 +690,6 @@ void Run()
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
-    opState = RUN; // start control
     //Run();
   }
   else if (used.item == DoAutotune) {
@@ -728,24 +741,26 @@ void menuChangeEvent(MenuChangeEvent changed)
   lcd.print(changed.to.getName());
   Serial.println(changed.to.getName());
   if (changed.to.getName() == TurnOff){
-    lcd.print(F("    Home"));
-    lcd.setCursor(0, 1);
-    lcd.print(F("   Sous Vide!"));
+    //opState = OFF;
+//    lcd.print(F("    Home"));
+//    lcd.setCursor(0, 1);
+//    lcd.print(F("   Sous Vide!"));
   }
   else if (changed.to.getName() == DoRun) {
-    lcd.print(F("Turn On"));
+    //lcd.print(F("Turn On"));f
+   // opState = RUN;
   }
   else if (changed.to.getName() == DoAutotune) {
-    lcd.print(F("Autotuning"));
+    //lcd.print(F("Autotuning"));
   }
   else if (changed.to.getName() == DoTuneP) {
-    lcd.print(F("Set Kp"));
+    //lcd.print(F("Set Kp"));
   }
   else if (changed.to.getName() == DoTuneI) {
-    lcd.print(F("Set Ki"));
+    //lcd.print(F("Set Ki"));
   }
   else if (changed.to.getName() == DoTuneD) {
-    lcd.print(F("Set Kd"));
+    //lcd.print(F("Set Kd"));
   }
 }
 
