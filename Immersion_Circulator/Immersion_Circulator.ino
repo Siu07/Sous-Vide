@@ -10,7 +10,7 @@
 // PID Library
 #include <PID_v1.h>
 #include <PID_AutoTune_v0.h>
-#include <LiquidCrystal.h>       //LCD 20x4
+#include <LiquidCrystal.h>       //LCD 16x4
 
 // Libraries for the DS18B20 Temperature Sensor
 #include <OneWire.h>
@@ -33,21 +33,27 @@
 #define ONE_WIRE_BUS 20
 
 // interrupt service routine vars
+#define encoder0PinA  2
+#define encoder0PinB  3
+
 boolean A_set = false;              
 boolean B_set = false;
 
 // Rotary Encoder vars
+volatile unsigned int encoder0Pos = 0;
 volatile unsigned int encoderValue = 0;  // a counter for the dial
-volatile int lastEncoded = 0; //Encoder sum
+static boolean rotating=false;      // debounce management
+unsigned int lastReportedPos = 1;   // change management
+volatile unsigned int encoderPos = 0;  // a counter for the dial
 
 enum PinAssignments {
-  encoderPin1 = 3,   // scroll right
-  encoderPin2 = 2,   // scroll left
+  encoderPinA = 3,   // scroll right
+  encoderPinB = 2,   // scroll left
   buttonPin = 5,    // Select
   backButton = 6    // back
 };
 
-static boolean rotating=false;      // debounce management
+
 
 // ************************************************
 // PID Variables and constants
@@ -159,14 +165,14 @@ void setup()
   //boolean calculating = false;
   
   //rotary encoder
-  pinMode(encoderPin1, INPUT); 
-  pinMode(encoderPin2, INPUT); 
+  pinMode(encoderPinA, INPUT); 
+  pinMode(encoderPinB, INPUT); 
   pinMode(buttonPin, INPUT);
   pinMode(backButton, INPUT);
   
  // turn on pullup resistors
-  digitalWrite(encoderPin1, HIGH);
-  digitalWrite(encoderPin2, HIGH);
+  digitalWrite(encoderPinA, HIGH);
+  digitalWrite(encoderPinB, HIGH);
   digitalWrite(buttonPin, HIGH);
   digitalWrite(backButton, HIGH);
   
@@ -225,24 +231,29 @@ void setup()
 // ************************************************
 void loop()
 {
+  rotating = true;
   //See if any of the inputs have changed
-  if (encoderValue > lastEncoded){
-    rotating = true;
-    menu.moveDown();                //goto previous menu choice
-    lastEncoded = encoderValue;
+  if (opState != RUN){
+    if (lastReportedPos > encoderPos){
+      menu.moveDown();                //goto previous menu choice
+      lastReportedPos = encoderPos;
+    }
+    else if (lastReportedPos < encoderPos){
+      menu.moveUp();                  //goto next menu choice
+      lastReportedPos = encoderPos;
+    }
   }
-  else if (encoderValue < lastEncoded){
-    rotating = true;
-    menu.moveUp();                  //goto next menu choice
-    lastEncoded = encoderValue;
-  }
-  else if (digitalRead(buttonPin) == LOW){
+  if (digitalRead(buttonPin) == LOW){
     while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
-    menu.use();
-    menu.moveRight();               //Select next menu down or run action
+    {
+      if (opState != RUN){
+        menu.use();
+        menu.moveRight();               //Select next menu down or run action
+      }
+    }
   }
   else if (digitalRead(backButton) == LOW){
-    while (digitalRead(buttonPin) == LOW) delay(10);
+    while (digitalRead(backButton) == LOW) delay(10);
     menu.moveLeft();                //go back to previous menu
   }
  
@@ -334,26 +345,26 @@ double EEPROM_readDouble(int address)
 // ************************************************
 void doEncoderA(){
   // debounce
-  if ( rotating ) delay (20);  // wait a little until the bouncing is done
-    // Test transition, did things really change? 
-  if( digitalRead(encoderPin1) != A_set ) {  // debounce once more
-    A_set = !A_set;
+  if ( rotating ) delay (1);  // wait a little until the bouncing is done
+  // Test transition, did things really change? 
+  if( digitalRead(encoderPinA) != A_set ){   // debounce once more
+        A_set = !A_set;
       // adjust counter + if A leads B
-    if ( A_set && !B_set )
-      encoderValue += 1;
+      if ( A_set && !B_set ) 
+          encoderPos ++;
       rotating = false;  // no more debouncing until loop() hits again
   }
 }
 
 // Interrupt on B changing state, same as A above
 void doEncoderB(){
-  if ( rotating ) delay (20);
-  if( digitalRead(encoderPin2) != B_set ) {
+  if ( rotating ) delay (1);
+  if( digitalRead(encoderPinB) != B_set ) {
     B_set = !B_set;
     //  adjust counter - 1 if B leads A
     if( B_set && !A_set ) 
-      encoderValue -= 1;
-      rotating = false;
+      encoderPos --;
+    rotating = false;
   }
 }
 
@@ -397,14 +408,14 @@ void userInput(int menuFlag, float scale) { //Flag to interperate where its from
   lcd.print(F("New Input: "));
   //encoderValue = 1;
   while (inputFlag == true) {
-    if (encoderValue < 0 || encoderValue > 1000) encoderValue = 0;
-    if (encoderValue != lastEncoded) {
+    if (encoderPos < 0 || encoderPos > 1000) encoderPos = 0;
+    if (lastReportedPos != encoderPos) {
       lcd.setCursor(0, 1);
       lcd.print(F("                   "));
       lcd.setCursor(0, 1);
-      numInput = encoderValue * scale;
+      numInput = encoderPos * scale;
       lcd.print(numInput);
-      lastEncoded = encoderValue;
+      lastReportedPos = encoderPos;
     }
     //Read the user's input
     if (digitalRead(buttonPin) == LOW){
@@ -737,3 +748,4 @@ void menuChangeEvent(MenuChangeEvent changed)
     lcd.print(F("Set Kd"));
   }
 }
+
