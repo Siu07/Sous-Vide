@@ -36,6 +36,14 @@
 #define encoder0PinA  2
 #define encoder0PinB  3
 
+//// motor connections
+#define HG7881_B_IA 9 // D10 --> Motor B Input A --> MOTOR B +
+#define HG7881_B_IB 8 // D11 --> Motor B Input B --> MOTOR B -
+// 
+//// functional connections
+#define MOTOR_B_PWM HG7881_B_IA // Motor B PWM Speed high to run
+#define MOTOR_B_DIR HG7881_B_IB // Motor B Direction low to run
+
 boolean A_set = false;              
 boolean B_set = false;
 
@@ -101,7 +109,7 @@ PID_ATune aTune(&Input, &Output);
 // Display Variables and constants
 // ************************************************
 
-LiquidCrystal lcd(10, 16, 14, 15, 18, 19);
+LiquidCrystal lcd(10, 16, 14, 15, 18, 19); //19, 18, 15, 14);
 
 unsigned long lastInput = 0; // last button press
 
@@ -158,6 +166,13 @@ void setup()
 {
    Serial.begin(9600);
 
+
+//   //Initalize motor controller
+   pinMode( MOTOR_B_DIR, OUTPUT );
+   pinMode( MOTOR_B_PWM, OUTPUT ); 
+   digitalWrite( MOTOR_B_DIR, LOW );
+   digitalWrite( MOTOR_B_PWM, LOW );
+   
    // Initialize Relay Control:
    pinMode(RelayPin, OUTPUT);    // Output mode to drive relay
    digitalWrite(RelayPin, LOW);  // make sure it is off to start
@@ -481,8 +496,10 @@ void DoControl()
   // Read the input:
   if (sensors.isConversionAvailable(0))
   {
-    Input = sensors.getTempC(tempSensor);
-    sensors.requestTemperatures(); // prime the pump for the next one - but don't wait
+    if (sensors.getAddress(tempSensor, 0)){
+      Input = sensors.getTempC(tempSensor);
+      sensors.requestTemperatures(); // prime the pump for the next one - but don't wait
+    }
   }
   
   if (tuning) // run the auto-tuner
@@ -506,6 +523,8 @@ void DoControl()
 // ************************************************
 void Off()
 {
+   digitalWrite( MOTOR_B_DIR, LOW );
+   digitalWrite( MOTOR_B_PWM, LOW );
    myPID.SetMode(MANUAL);
    digitalWrite(RelayPin, LOW);  // make sure it is off
 
@@ -605,6 +624,8 @@ void Run()
    // set up the LCD's number of rows and columns: 
    SaveParameters();
    myPID.SetTunings(Kp,Ki,Kd);
+   digitalWrite( MOTOR_B_DIR, LOW );
+   digitalWrite( MOTOR_B_PWM, HIGH );
 
    //while(true)
 //   {
@@ -710,6 +731,8 @@ void Run()
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_P;
+    digitalWrite( MOTOR_B_DIR, LOW );
+    digitalWrite( MOTOR_B_PWM, LOW );
     //TuneP();
   }
   else if (used.item == DoTuneI) {
@@ -720,6 +743,8 @@ void Run()
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_I;
+    digitalWrite( MOTOR_B_DIR, LOW );
+    digitalWrite( MOTOR_B_PWM, LOW );
     //TuneI();
   }
   else if (used.item == DoTuneD) {
@@ -730,6 +755,8 @@ void Run()
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_D;
+    digitalWrite( MOTOR_B_DIR, LOW );
+    digitalWrite( MOTOR_B_PWM, LOW );
     //TuneD();
   }
 }
