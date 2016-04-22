@@ -135,7 +135,6 @@ long lastLogTime = 0;
 enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO};
 operatingState opState = OFF;
 
-
 // ************************************************
 // Sensor Variables and constants
 // Data wire is plugged into port 2 on the Arduino
@@ -212,7 +211,7 @@ void setup()
       lcd.setCursor(0, 1);
       lcd.print(F("Sensor Error"));
    }
-   sensors.setResolution(tempSensor, 9); //12 for more accurate model.
+   sensors.setResolution(tempSensor, 12); //12 for more accurate model.
    sensors.setWaitForConversion(false);
    LoadParameters();
    myPID.SetTunings(Kp,Ki,Kd);
@@ -503,6 +502,9 @@ void DoControl()
   {
     if (sensors.getAddress(tempSensor, 0)){
       Input = sensors.getTempC(tempSensor);
+      while (Input == -127) {
+        Input = sensors.getTempC(tempSensor);
+      }
       sensors.requestTemperatures(); // prime the pump for the next one - but don't wait
     }
   }
@@ -715,7 +717,6 @@ void Run()
 if (used.item == DoRun) {
     opState = RUN;
     // Prepare to transition to the RUN state
-    sensors.requestTemperatures(); // Start an asynchronous temperature reading
    
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
@@ -724,7 +725,6 @@ if (used.item == DoRun) {
   }
   else if (used.item == DoAutotune) {
     // Prepare to transition to the RUN state
-    sensors.requestTemperatures(); // Start an asynchronous temperature reading
    
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
@@ -734,7 +734,6 @@ if (used.item == DoRun) {
   }
   else if (used.item == DoTuneP) {
     // Prepare to transition to the RUN state
-    sensors.requestTemperatures(); // Start an asynchronous temperature reading
    
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
@@ -746,7 +745,6 @@ if (used.item == DoRun) {
   }
   else if (used.item == DoTuneI) {
     // Prepare to transition to the RUN state
-    sensors.requestTemperatures(); // Start an asynchronous temperature reading
    
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
@@ -758,8 +756,7 @@ if (used.item == DoRun) {
   }
   else if (used.item == DoTuneD) {
     // Prepare to transition to the RUN state
-    sensors.requestTemperatures(); // Start an asynchronous temperature reading
-   
+       
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
