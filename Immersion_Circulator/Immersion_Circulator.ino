@@ -71,6 +71,7 @@ enum PinAssignments {
 double Setpoint;
 double Input;
 double Output;
+double spinRate; //motor pwm
 
 volatile long onTime = 0;
 
@@ -625,7 +626,7 @@ void Run()
    SaveParameters();
    myPID.SetTunings(Kp,Ki,Kd);
    digitalWrite( MOTOR_B_DIR, LOW );
-   digitalWrite( MOTOR_B_PWM, HIGH );
+   analogWrite( MOTOR_B_PWM, spinRate );
 
    //while(true)
 //   {
@@ -656,6 +657,7 @@ void Run()
       lcd.print(F("C : "));
       
       float pct = map(Output, 0, WindowSize, 0, 1000);
+      spinRate = map(Output, 0, WindowSize, 127.5, 255);
       lcd.setCursor(10,1);
       lcd.print(F("      "));
       lcd.setCursor(10,1);
