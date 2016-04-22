@@ -133,7 +133,7 @@ long lastLogTime = 0;
 // States for state machine
 // ************************************************
 enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO};
-operatingState opState = RUN;
+operatingState opState = OFF;
 
 
 // ************************************************
@@ -201,7 +201,7 @@ void setup()
    lcd.begin(16, 4);
    lcd.createChar(1, degree); // create degree symbol from the binary
    
-   lcd.print(F("    Home"));
+   //lcd.print(F("    Home"));
    lcd.setCursor(0, 1);
    lcd.print(F("   Sous Vide!"));
 
@@ -212,39 +212,41 @@ void setup()
       lcd.setCursor(0, 1);
       lcd.print(F("Sensor Error"));
    }
-   sensors.setResolution(tempSensor, 12);
+   sensors.setResolution(tempSensor, 9); //12 for more accurate model.
    sensors.setWaitForConversion(false);
-
-   delay(3000);  // Splash screen
-
-   // Initialize the PID and related variables
    LoadParameters();
    myPID.SetTunings(Kp,Ki,Kd);
 
    myPID.SetSampleTime(1000);
    myPID.SetOutputLimits(0, WindowSize);
-   opState = RUN;
   //Setup Menu
-   menu.getRoot().add(TurnOff);
-     TurnOff.addRight(DoRun);
-     DoRun.addAfter(DoAutotune);
-     DoAutotune.addAfter(DoTuneP);
-     DoTuneP.addAfter(DoTuneI);
-     DoTuneI.addAfter(DoTuneD);
-     DoTuneD.addAfter(DoRun);
+   menu.getRoot().add(DoRun);
+     DoAutotune.addAfter(DoRun);
+     DoTuneP.addAfter(DoAutotune);
+     DoTuneI.addAfter(DoTuneP);
+     DoTuneD.addAfter(DoTuneI);
+     DoRun.addAfter(DoTuneD);
+     //DoRun.addBefore(DoTuneD);
          
-     DoAutotune.addLeft(TurnOff);
-     DoTuneP.addLeft(TurnOff);
-     DoTuneI.addLeft(TurnOff);
-     DoTuneD.addLeft(TurnOff);
-     DoRun.addLeft(TurnOff);
+     DoAutotune.addLeft(DoRun);
+     DoTuneD.addLeft(DoRun);
+     DoTuneI.addLeft(DoRun);
+     DoTuneP.addLeft(DoRun);
+     DoRun.addLeft(DoRun);
+     
+   delay(2000);  // Splash screen
 
-     TurnOff.addAfter(TurnOff);
-     TurnOff.addBefore(TurnOff);
+   // Initialize the PID and related variables
 
-     menu.moveDown();  
-     menu.moveRight();
-     menu.use();
+//     DoRun.addLeft(TurnOff);
+
+//     TurnOff.addAfter(TurnOff);
+//     TurnOff.addBefore(TurnOff);
+
+//     menu.moveDown(); 
+    //menu.use(); 
+     menu.moveDown();
+//     
    }
 
 // ************************************************
@@ -276,6 +278,7 @@ void loop()
   if (digitalRead(backButton) == LOW){
     while (digitalRead(backButton) == LOW) delay(10);
     Serial.print("backbutton");
+    lcd.clear();
     menu.moveLeft();                //go back to previous menu
   }
  
@@ -283,7 +286,7 @@ void loop()
    switch (opState)
    {
    case OFF:
-      Off();  //add code to turn motor off
+      Off();
       break;
     case RUN:
       Run();
@@ -657,7 +660,7 @@ void Run()
       lcd.print(F("C : "));
       
       float pct = map(Output, 0, WindowSize, 0, 1000);
-      spinRate = map(Output, 0, WindowSize, 127.5, 255);
+      spinRate = map(Output, 0, WindowSize, 127, 255);
       lcd.setCursor(10,1);
       lcd.print(F("      "));
       lcd.setCursor(10,1);
@@ -691,7 +694,8 @@ void Run()
     else if (digitalRead(backButton) == LOW){
       while (digitalRead(backButton) == LOW) delay(10);
       opState = OFF;
-      menu.moveUp();
+      lcd.clear();
+      menu.moveLeft();
       //menu.use();
     }
     delay(100);
@@ -701,11 +705,13 @@ void Run()
 {
   Serial.print(F("Menu use "));
   Serial.println(used.item.getName());
-  if (used.item == TurnOff){
-    menu.moveRight();
-    //Off();
-  }
-  else if (used.item == DoRun) {
+//  if (used.item == TurnOff){
+//    lcd.clear();
+//    menu.moveRight();
+//    //Off();
+//  }
+//  else 
+if (used.item == DoRun) {
     opState = RUN;
     // Prepare to transition to the RUN state
     sensors.requestTemperatures(); // Start an asynchronous temperature reading
@@ -769,15 +775,14 @@ void menuChangeEvent(MenuChangeEvent changed)
   lcd.setCursor(0, 1);
   lcd.print(changed.to.getName());
   Serial.println(changed.to.getName());
-  if (changed.to.getName() == TurnOff){
-    //opState = OFF;
-//    lcd.print(F("    Home"));
-//    lcd.setCursor(0, 1);
-//    lcd.print(F("   Sous Vide!"));
-  }
-  else if (changed.to.getName() == DoRun) {
-    //lcd.print(F("Turn On"));f
-   // opState = RUN;
+//  if (changed.to.getName() == TurnOff){
+//    menu.moveRight();
+//  }
+//  else 
+if (changed.to.getName() == DoRun) {
+    lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(changed.to.getName());
   }
   else if (changed.to.getName() == DoAutotune) {
     //lcd.print(F("Autotuning"));
