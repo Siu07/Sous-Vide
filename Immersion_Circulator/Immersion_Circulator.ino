@@ -278,6 +278,7 @@ void loop()
   if (digitalRead(backButton) == LOW){
     while (digitalRead(backButton) == LOW) delay(10);
     Serial.print("backbutton");
+    opState = OFF;
     lcd.clear();
     menu.moveLeft();                //go back to previous menu
   }
