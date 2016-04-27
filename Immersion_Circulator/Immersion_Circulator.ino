@@ -664,6 +664,7 @@ void Run()
       
       float pct = map(Output, 0, WindowSize, 0, 1000);
       spinRate = map(Output, 0, WindowSize, 127, 255);
+      if(Setpoint == Input) spinRate = 0;
       lcd.setCursor(10,1);
       lcd.print(F("      "));
       lcd.setCursor(10,1);
