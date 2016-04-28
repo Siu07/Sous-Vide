@@ -371,7 +371,7 @@ double EEPROM_readDouble(int address)
 // ************************************************
 void doEncoderA(){
   // debounce
-  if ( rotating ) delay (1);  // wait a little until the bouncing is done
+  if ( rotating ) delay (10);  // wait a little until the bouncing is done
   // Test transition, did things really change? 
   if( digitalRead(encoderPinA) != A_set ){   // debounce once more
         A_set = !A_set;
@@ -384,7 +384,7 @@ void doEncoderA(){
 
 // Interrupt on B changing state, same as A above
 void doEncoderB(){
-  if ( rotating ) delay (1);
+  if ( rotating ) delay (10);
   if( digitalRead(encoderPinB) != B_set ) {
     B_set = !B_set;
     //  adjust counter - 1 if B leads A
@@ -412,7 +412,7 @@ void LoadParameters()
    }
    if (isnan(Kp))
    {
-     Kp = 850;
+     Kp = 650;
    }
    if (isnan(Ki))
    {
