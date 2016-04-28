@@ -664,7 +664,8 @@ void Run()
       
       float pct = map(Output, 0, WindowSize, 0, 1000);
       spinRate = map(Output, 0, WindowSize, 127, 255);
-      if(Setpoint == Input) spinRate = 0;
+      if ((Setpoint-0.25 < Input) && (Setpoint+0.25 > Input)) spinRate = 0; // turn off motor when within margin of setpoint.
+      //if(Setpoint == Input) spinRate = 0;
       lcd.setCursor(10,1);
       lcd.print(F("      "));
       lcd.setCursor(10,1);
