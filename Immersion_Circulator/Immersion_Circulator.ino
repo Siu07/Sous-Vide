@@ -5,6 +5,8 @@
 //
 // Based on the Arduino PID and PID AutoTune Libraries 
 // by Brett Beauregard
+
+//Updated 25/10/16
 //------------------------------------------------------------------
 
 // PID Library
@@ -43,6 +45,10 @@
 //// functional connections
 #define MOTOR_B_PWM HG7881_B_IA // Motor B PWM Speed high to run
 #define MOTOR_B_DIR HG7881_B_IB // Motor B Direction low to run
+
+//Float switch
+#define fCutoff 7
+boolean fSwitch = TRUE;
 
 boolean A_set = false;              
 boolean B_set = false;
@@ -90,7 +96,7 @@ const int KdAddress = 24;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 // 10 second Time Proportional Output window
-int WindowSize = 10000; 
+int WindowSize = 1000; 
 unsigned long windowStartTime;
 
 // ************************************************
@@ -176,6 +182,10 @@ void setup()
    // Initialize Relay Control:
    pinMode(RelayPin, OUTPUT);    // Output mode to drive relay
    digitalWrite(RelayPin, LOW);  // make sure it is off to start
+
+   //float switch initialize
+   pinMode(fCutoff, INPUT);
+   digitalWrite(fCutoff, HIGH);
    
   //boolean calculating = false;
   
@@ -197,7 +207,7 @@ void setup()
   attachInterrupt(1, doEncoderB, CHANGE);
   
    // Initialize LCD Display 
-   lcd.begin(16, 4);
+   lcd.begin(16, 4);  //need to change to (20, 4) for new screen
    lcd.createChar(1, degree); // create degree symbol from the binary
    
    //lcd.print(F("    Home"));
@@ -213,6 +223,7 @@ void setup()
    }
    sensors.setResolution(tempSensor, 12); //12 for more accurate model.
    sensors.setWaitForConversion(false);
+   fSwitch = digitalRead(fCutoff);
    LoadParameters();
    myPID.SetTunings(Kp,Ki,Kd);
 
@@ -424,7 +435,7 @@ void LoadParameters()
    }  
 }
 
-void userInput(int menuFlag, float scale, double prior) { //Flag to interperate where its from, scale of scroll, defualt 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
+void userInput(int menuFlag, float scale, double prior) { //Flag to interperate where its from, scale of scroll, default 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
   while (digitalRead(buttonPin) == LOW) delay(10);
   float numInput;
   boolean inputFlag = true;
@@ -548,21 +559,33 @@ void Off()
 // ************************************************
 void DriveOutput()
 {  
-  long now = millis();
-  // Set the output
-  // "on time" is proportional to the PID output
-  if(now - windowStartTime>WindowSize)
-  { //time to shift the Relay Window
-     windowStartTime += WindowSize;
-  }
-  if((onTime > 100) && (onTime > (now - windowStartTime)))
-  {
-     digitalWrite(RelayPin,HIGH);
+  fSwitch = digitalRead(fCutoff);
+  if (fSwitch == TRUE){
+    digitalWrite(RelayPin,LOW);
+    digitalWrite( MOTOR_B_DIR, LOW );
+    digitalWrite( MOTOR_B_PWM, LOW );
+    lcd.setCursor(2,4);
+    lcd.print("Water Low!");
   }
   else
   {
-     digitalWrite(RelayPin,LOW);
+    long now = millis();
+    // Set the output
+    // "on time" is proportional to the PID output
+    if(now - windowStartTime>WindowSize)
+    { //time to shift the Relay Window
+       windowStartTime += WindowSize;
+    }
+    if((onTime > 100) && (onTime > (now - windowStartTime)))
+    {
+       digitalWrite(RelayPin,HIGH);
+    }
+    else
+    {
+       digitalWrite(RelayPin,LOW);
+    }
   }
+    
 }
 
 // ************************************************
@@ -663,8 +686,11 @@ void Run()
       lcd.print(F("C : "));
       
       float pct = map(Output, 0, WindowSize, 0, 1000);
-      spinRate = map(Output, 0, WindowSize, 127, 255);
-      if ((Setpoint-0.25 < Input) && (Setpoint+0.25 > Input)) spinRate = 0; // turn off motor when within margin of setpoint.
+      
+      spinRate = 255; // spinrate override
+      //spinRate = map(Output, 0, WindowSize, 127, 255);      //spinrate only to be used on motor systems where noise is more important than circulation
+      //if ((Setpoint-0.25 < Input) && (Setpoint+0.25 > Input)) spinRate = 0; // turn off motor when within margin of setpoint.
+
       //if(Setpoint == Input) spinRate = 0;
       lcd.setCursor(10,1);
       lcd.print(F("      "));
@@ -797,4 +823,3 @@ if (changed.to.getName() == DoRun) {
     //lcd.print(F("Set Kd"));
   }
 }
-
