@@ -9,7 +9,7 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 16/11/16
+// Last Updated 17/11/16
 //------------------------------------------------------------------
 
 // PID Library
@@ -31,43 +31,32 @@
 // Pin definitions
 // ************************************************
 
-// Output Relay
-#define RelayPin 21
-
-// One-Wire Temperature Sensor
-#define ONE_WIRE_BUS 20
-
-// interrupt service routine vars
-#define encoder0PinA 2
-#define encoder0PinB 3
-#define fCutoff 7
-
-//// motor connections
-#define HG7881_B_IA 9 // D10 --> Motor B Input A --> MOTOR B +
-//#define HG7881_B_IB 8 // D11 --> Motor B Input B --> MOTOR B -
-//
-//// functional connections
-#define MOTOR_B_PWM HG7881_B_IA // Motor B PWM Speed high to run
-//#define MOTOR_B_DIR HG7881_B_IB // Motor B Direction low to run //not needed with pump
-
 //Float switch
-boolean fSwitch = TRUE;
-
-boolean A_set = false;
-boolean B_set = false;
+boolean fSwitch = TRUE; //start in safe mode
 
 // Rotary Encoder vars
-volatile unsigned int encoder0Pos = 0;
-volatile unsigned int encoderValue = 0;  // a counter for the dial
+boolean A_set = false;
+boolean B_set = false;
 static boolean rotating = false;    // debounce management
 unsigned int lastReportedPos = 60;   // change management
 volatile unsigned int encoderPos = 60;  // a counter for the dial
 
-enum PinAssignments {
+enum Assignments {  //Unchangeing int's
   encoderPinA = 3,  // scroll right
   encoderPinB = 2,  // scroll left
   buttonPin = 5,    // Select
-  backButton = 6   // back
+  backButton = 6,   // back
+  RelayPin = 21,    // Output Relay
+  ONE_WIRE_BUS = 20,// One-Wire Temperature Sensor
+  encoder0PinA = 2, // interrupt service routine
+  encoder0PinB = 3, // interrupt service routine
+  fCutoff = 7,      // interrupt service routine
+  MOTOR_B_PWM = 9,  // motor connections
+  SpAddress = 0,    // EEPROM addresses for setpoint persisted data
+  KpAddress = 8,    // EEPROM addresses for Kp persisted data
+  KiAddress = 16,   // EEPROM addresses for Ki persisted data
+  KdAddress = 24,   // EEPROM addresses for Kd persisted data
+  WindowSize = 1000 // 1 second Time Proportional Output window
 };
 
 // ************************************************
@@ -78,31 +67,24 @@ enum PinAssignments {
 double Setpoint;
 double Input;
 double Output;
-double spinRate; //motor pwm
+volatile long onTime = 0;   // output relay drive time
 
 //define ramp soak varibles
 double pMillis; //previous time calculations were performed
 double drive;  //your ramping setpoint, set by calculation
 double pDrive; // previous output of ramping setpoint
 
-volatile long onTime = 0;
+//pump motor PWM (always 100% for now)
+int spinRate = 255;     //motor pwm
 
 // pid tuning parameters
 double Kp;
 double Ki;
 double Kd;
 
-// EEPROM addresses for persisted data
-const int SpAddress = 0;
-const int KpAddress = 8;
-const int KiAddress = 16;
-const int KdAddress = 24;
-
 //Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &drive, Kp, Ki, Kd, DIRECT);
 
-// 10 second Time Proportional Output window
-int WindowSize = 1000;
 unsigned long windowStartTime;
 
 // ************************************************
@@ -122,9 +104,7 @@ PID_ATune aTune(&Input, &Output);
 // Display Variables and constants
 // ************************************************
 
-LiquidCrystal lcd(10, 16, 14, 15, 18, 19); //19, 18, 15, 14);
-
-unsigned long lastInput = 0; // last button press
+LiquidCrystal lcd(10, 16, 14, 15, 18, 19);
 
 byte degree[8] = // define the degree symbol
 {
@@ -149,7 +129,6 @@ operatingState opState = OFF;
 
 // ************************************************
 // Sensor Variables and constants
-// Data wire is plugged into port 2 on the Arduino
 
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
@@ -180,9 +159,7 @@ void setup()
 
 
   //   //Initalize motor controller
-  //pinMode( MOTOR_B_DIR, OUTPUT );
   pinMode( MOTOR_B_PWM, OUTPUT );
-  //digitalWrite( MOTOR_B_DIR, LOW );
   digitalWrite( MOTOR_B_PWM, LOW );
 
   // Initialize Relay Control:
@@ -220,16 +197,16 @@ void setup()
 
   //lcd.print(F("    Home"));
   lcd.setCursor(0, 1);
-  lcd.print(F("   Sous Vide!"));
+  lcd.print(F("   Sous Vide!")); //splash screen
 
   // Start up the DS18B20 One Wire Temperature Sensor
   sensors.begin();
   if (!sensors.getAddress(tempSensor, 0))
   {
     lcd.setCursor(0, 1);
-    lcd.print(F("Sensor Error"));
+    lcd.print(F("Sensor Error")); //alternate bad times splash screen
   }
-  sensors.setResolution(tempSensor, 12); //12 for more accurate model.
+  sensors.setResolution(tempSensor, 10); //12 for more accurate model.
   sensors.setWaitForConversion(false);
   fSwitch = digitalRead(fCutoff);
   LoadParameters();
@@ -252,18 +229,9 @@ void setup()
   DoTuneP.addLeft(DoRun);
   DoRun.addLeft(DoRun);
 
-  delay(2000);  // Splash screen
+  delay(2000);  // Splash screen to make it look super smart and pretend its doing super important background stuff
 
-  // Initialize the PID and related variables
-
-  //     DoRun.addLeft(TurnOff);
-
-  //     TurnOff.addAfter(TurnOff);
-  //     TurnOff.addBefore(TurnOff);
-
-  //     menu.moveDown();
-  //menu.use();
-  menu.moveDown();
+  menu.moveDown(); //move to main menu
   //
 }
 
@@ -274,9 +242,9 @@ void setup()
 // ************************************************
 void loop()
 {
-  rotating = true;
+  rotating = true; //unlock rotary encoders
   //See if any of the inputs have changed
-  if (opState != RUN) {
+  if (opState != RUN) { //if its not running, and its in the main loop it must be on the menu
     if (lastReportedPos > encoderPos) {
       menu.moveDown();                //goto previous menu choice
       lastReportedPos = encoderPos;
@@ -302,7 +270,7 @@ void loop()
   }
 
   //lcd.clear();
-  switch (opState)
+  switch (opState) //run or continue running current state
   {
     case OFF:
       Off();
@@ -340,7 +308,7 @@ void StartAutoTune()
 // ************************************************
 // Save any parameter changes to EEPROM
 // ************************************************
-void SaveParameters()
+void SaveParameters()   //i should probably change this to the EEPROMex library at some point, but this works.
 {
   if (Setpoint != EEPROM_readDouble(SpAddress))
   {
@@ -416,7 +384,6 @@ void doEncoderB() {
 // Interrupt on float switch. Make device safe until fault clears.
 void dofSwitch() {
   digitalWrite(RelayPin, LOW);
-  //digitalWrite( MOTOR_B_DIR, LOW );
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
   lcd.clear();
@@ -426,7 +393,7 @@ void dofSwitch() {
   while (fSwitch == TRUE) fSwitch = digitalRead(fCutoff);
   lcd.clear();
   myPID.SetMode(AUTOMATIC);
-  digitalWrite( MOTOR_B_PWM, spinRate);
+  digitalWrite( MOTOR_B_PWM, spinRate); //start pump, but don't bother triggering heater until next pass of RUN
 }
 // ************************************************
 // Load parameters from EEPROM
@@ -469,7 +436,6 @@ void userInput(int menuFlag, float scale, double prior) { //Flag to interperate 
   lcd.print(F("New Input: "));
   lcd.setCursor(0, 1);
   lcd.print(prior);
-  //encoderValue = 1;
   while (inputFlag == true) {
     if (encoderPos < 0 || encoderPos > 1000) encoderPos = 0;
     if (lastReportedPos != encoderPos) {
@@ -582,27 +548,19 @@ void DoControl()
 // ************************************************
 // Initial State - press RIGHT to enter setpoint
 // ************************************************
-void Off()
+void Off()  //don't run the system whilst it's on the main menu, or anywhere other than the "RUN" state
 {
-  //digitalWrite( MOTOR_B_DIR, LOW );
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
   digitalWrite(RelayPin, LOW);  // make sure it is off
-
-  //uint8_t buttons = 0;
-  //   while (digitalRead(backButton) == HIGH){
-  //    delay(10);
-  //    //put menu here
-  //   }
-
-  //while (digitalRead(backButton) == LOW) delay(10);
 }
+
 // ************************************************
-// Called by ISR every 15ms to drive the output
+// Drive the output
 // ************************************************
 void DriveOutput()
 {
-  rampS(0.1); //ramp 0.1c every second. Min 3L, 40c temp rise, 1.5kW = ~6min's = 0.11 max ramp
+  rampS(0.1); //ramp 0.1c per second. Min 3L, 40c temp rise, 1.5kW = ~6min's = 0.11 max ramp
   long now = millis();
   // Set the output
   // "on time" is proportional to the PID output
@@ -626,16 +584,8 @@ void DriveOutput()
 void TuneP()
 {
   userInput(2, 10, Kp);
-  //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
-  //{
-  opState = RUN;
+  opState = OFF;
   return;
-  //}
-  lcd.setCursor(0, 1);
-  lcd.print(Kp);
-  lcd.print(" ");
-  DoControl();
-  DriveOutput();
 }
 
 // ************************************************
@@ -644,16 +594,8 @@ void TuneP()
 void TuneI()
 {
   userInput(3, 0.1, Ki);
-  //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
-  //{
-  opState = RUN;
+  opState = OFF;
   return;
-  //}
-  lcd.setCursor(0, 1);
-  lcd.print(Ki);
-  lcd.print(" ");
-  DoControl();
-  DriveOutput();
 }
 
 // ************************************************
@@ -662,24 +604,13 @@ void TuneI()
 void TuneD()
 {
   userInput(4, 0.1, Kd);
-  //if ((millis() - lastInput) > 3000)  // return to RUN after 3 seconds idle
-  //{
-  opState = RUN;
+  opState = OFF;
   return;
-  //}
-  lcd.setCursor(0, 1);
-  lcd.print(Kd);
-  lcd.print(" ");
-  DoControl();
-  DriveOutput();
 }
 
 
 // ************************************************
-// PID COntrol State
-// SHIFT and RIGHT for autotune
-// RIGHT - Setpoint
-// LEFT - OFF
+// PID Control State
 // ************************************************
 void Run()
 {
@@ -689,7 +620,6 @@ void Run()
   //digitalWrite( MOTOR_B_DIR, LOW );
   spinRate = 255; //overridden because pump now
   analogWrite( MOTOR_B_PWM, spinRate );
-
   DoControl();
   DriveOutput();
   lcd.setCursor(0, 0);
@@ -701,19 +631,12 @@ void Run()
   lcd.print(Input);
   lcd.write(1);
   lcd.print(F("C : "));
-
-  float pct = map(Output, 0, WindowSize, 0, 1000);
-
-  //spinRate = map(Output, 0, WindowSize, 127, 255);      //spinrate only to be used on motor systems where noise is more important than circulation
-  //if ((Setpoint-0.25 < Input) && (Setpoint+0.25 > Input)) spinRate = 0; // turn off motor when within margin of setpoint.
-  //if(Setpoint == Input) spinRate = 0;
+  float pct = map(Output, 0, WindowSize, 0, 1000); //percentage drive to heater
   lcd.setCursor(10, 1);
   lcd.print(F("      "));
   lcd.setCursor(10, 1);
   lcd.print(pct / 10);
-  //lcd.print(Output);
   lcd.print("%");
-
   lcd.setCursor(15, 0);
   if (tuning)
   {
@@ -723,7 +646,6 @@ void Run()
   {
     lcd.print(" ");
   }
-
   // periodically log to serial port in csv format
   if (millis() - lastLogTime > logInterval)
   {
@@ -731,8 +653,6 @@ void Run()
     Serial.print(",");
     Serial.println(Output);
   }
-  //    if (digitalRead(buttonPin) == LOW){
-  //      while (digitalRead(buttonPin) == LOW) delay(10);
   if (lastReportedPos != encoderPos) {
     userInput(1, 0.25, Setpoint);
     opState = RUN;
@@ -742,7 +662,6 @@ void Run()
     opState = OFF;
     lcd.clear();
     menu.moveLeft();
-    //menu.use();
   }
   delay(100);
 }
@@ -751,24 +670,13 @@ void menuUseEvent(MenuUseEvent used)
 {
   Serial.print(F("Menu use "));
   Serial.println(used.item.getName());
-  //  if (used.item == TurnOff){
-  //    lcd.clear();
-  //    menu.moveRight();
-  //    //Off();
-  //  }
-  //  else
   if (used.item == DoRun) {
-    opState = RUN;
-    // Prepare to transition to the RUN state
-
+    opState = RUN;      // Prepare to transition to the RUN state
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
-    //Run();
   }
   else if (used.item == DoAutotune) {
-    // Prepare to transition to the RUN state
-
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
@@ -776,37 +684,22 @@ void menuUseEvent(MenuUseEvent used)
     StartAutoTune();
   }
   else if (used.item == DoTuneP) {
-    // Prepare to transition to the RUN state
-
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_P;
-    //digitalWrite( MOTOR_B_DIR, LOW );
-    digitalWrite( MOTOR_B_PWM, LOW );
-    //TuneP();
   }
   else if (used.item == DoTuneI) {
-    // Prepare to transition to the RUN state
-
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_I;
-    //digitalWrite( MOTOR_B_DIR, LOW );
-    digitalWrite( MOTOR_B_PWM, LOW );
-    //TuneI();
   }
   else if (used.item == DoTuneD) {
-    // Prepare to transition to the RUN state
-
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
     windowStartTime = millis();
     opState = TUNE_D;
-    //digitalWrite( MOTOR_B_DIR, LOW );
-    digitalWrite( MOTOR_B_PWM, LOW );
-    //TuneD();
   }
 }
 
@@ -816,25 +709,17 @@ void menuChangeEvent(MenuChangeEvent changed)
   lcd.setCursor(0, 1);
   lcd.print(changed.to.getName());
   Serial.println(changed.to.getName());
-  //  if (changed.to.getName() == TurnOff){
-  //    menu.moveRight();
-  //  }
-  //  else
   if (changed.to.getName() == DoRun) {
     lcd.clear();
     lcd.setCursor(0, 1);
     lcd.print(changed.to.getName());
   }
   else if (changed.to.getName() == DoAutotune) {
-    //lcd.print(F("Autotuning"));
   }
   else if (changed.to.getName() == DoTuneP) {
-    //lcd.print(F("Set Kp"));
   }
   else if (changed.to.getName() == DoTuneI) {
-    //lcd.print(F("Set Ki"));
   }
   else if (changed.to.getName() == DoTuneD) {
-    //lcd.print(F("Set Kd"));
   }
 }
