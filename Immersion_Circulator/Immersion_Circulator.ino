@@ -189,7 +189,7 @@ void setup()
   // encoder pin on interrupt 1 (pin 3)
   attachInterrupt(1, doEncoderB, CHANGE);
   // encoder pin on interrupt 4 (pin 7)
-  attachInterrupt(4, dofSwitch, RISING);
+  attachInterrupt(4, doffSwitch, RISING);
 
   // Initialize LCD Display
   lcd.begin(16, 4);  //need to change to (20, 4) for new screen
@@ -382,7 +382,7 @@ void doEncoderB() {
 }
 
 // Interrupt on float switch. Make device safe until fault clears.
-void dofSwitch() {
+void doffSwitch() {
   digitalWrite(RelayPin, LOW);
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
