@@ -159,7 +159,6 @@ void setup()
 {
   Serial.begin(9600);
 
-
   //   //Initalize motor controller
   pinMode( MOTOR_B_PWM, OUTPUT );
   digitalWrite( MOTOR_B_PWM, LOW );
@@ -185,7 +184,7 @@ void setup()
   attachInterrupt(4, dofSwitch, FALLING);
 
   // Initialize LCD Display
-  lcd.begin(16, 4);  //need to change to (20, 4) for new screen
+  lcd.begin(16, 4);
   lcd.createChar(1, degree); // create degree symbol from the binary
 
   //lcd.print(F("    Home"));
@@ -199,7 +198,7 @@ void setup()
     lcd.setCursor(0, 1);
     lcd.print(F("Sensor Error")); //alternate bad times splash screen
   }
-  sensors.setResolution(tempSensor, 10); //12 for more accurate model.
+  sensors.setResolution(tempSensor, 12); //12 for more accurate model.
   sensors.setWaitForConversion(false);
   fSwitch = digitalRead(fCutoff);
   if(fSwitch == FALSE) dofSwitch();
@@ -215,7 +214,6 @@ void setup()
   DoTuneI.addAfter(DoTuneP);
   DoTuneD.addAfter(DoTuneI);
   DoRun.addAfter(DoTuneD);
-  //DoRun.addBefore(DoTuneD);
 
   DoAutotune.addLeft(DoRun);
   DoTuneD.addLeft(DoRun);
@@ -226,7 +224,8 @@ void setup()
   delay(2000);  // Splash screen to make it look super smart and pretend its doing super important background stuff
 
   menu.moveDown(); //move to main menu
-  //
+  
+  myPID.SetMode(AUTOMATIC);
 }
 
 // ************************************************
@@ -646,11 +645,13 @@ void Run()
   // periodically log to serial port in csv format
   if (millis() - lastLogTime > logInterval)
   {
-    Serial.print(drive);
-    Serial.print(",");
+    //Serial.print(drive);
+    //Serial.print(",");
     Serial.print(Input);
     Serial.print(",");
-    Serial.println(Output);
+    Serial.print(Output);
+    Serial.print(",");
+    Serial.println(Setpoint);
   }
   if (lastReportedPos != encoderPos) {
     userInput(1, 0.25, mySetpoint);
