@@ -64,7 +64,8 @@ enum Assignments {  //Unchangeing int's
 // ************************************************
 
 //Define Variables we'll be connecting to
-double Setpoint;
+double mySetpoint; //only changes with user input
+double Setpoint;  //ramping setpoint
 double Input;
 double Output;
 volatile long onTime = 0;   // output relay drive time
@@ -73,6 +74,7 @@ volatile long onTime = 0;   // output relay drive time
 double pMillis; //previous time calculations were performed
 double drive;  //your ramping setpoint, set by calculation
 double pDrive; // previous output of ramping setpoint
+double pSetpoint; //detect if the setpoint has changed
 
 //pump motor PWM (always 100% for now)
 int spinRate = 255;     //motor pwm
@@ -83,7 +85,7 @@ double Ki;
 double Kd;
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &drive, Kp, Ki, Kd, DIRECT);
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 unsigned long windowStartTime;
 
@@ -118,7 +120,7 @@ byte degree[8] = // define the degree symbol
   B00000
 };
 
-const int logInterval = 10000; // log every 10 seconds
+const int logInterval = 1000; // log every 1 seconds
 long lastLogTime = 0;
 
 // ************************************************
@@ -167,29 +169,20 @@ void setup()
   digitalWrite(RelayPin, LOW);  // make sure it is off to start
 
   //float switch initialize
-  pinMode(fCutoff, INPUT);
-  digitalWrite(fCutoff, HIGH);
-
-  //boolean calculating = false;
+  pinMode(fCutoff, INPUT_PULLUP);
 
   //rotary encoder
-  pinMode(encoderPinA, INPUT);
-  pinMode(encoderPinB, INPUT);
-  pinMode(buttonPin, INPUT);
-  pinMode(backButton, INPUT);
-
-  // turn on pullup resistors
-  digitalWrite(encoderPinA, HIGH);
-  digitalWrite(encoderPinB, HIGH);
-  digitalWrite(buttonPin, HIGH);
-  digitalWrite(backButton, HIGH);
+  pinMode(encoderPinA, INPUT_PULLUP);  
+  pinMode(encoderPinB, INPUT_PULLUP);
+  pinMode(buttonPin, INPUT_PULLUP); //circuit diagram shows 10k resister, but i never got around to fitting it
+  pinMode(backButton, INPUT_PULLUP);
 
   // encoder pin on interrupt 0 (pin 2)
   attachInterrupt(0, doEncoderA, CHANGE);
   // encoder pin on interrupt 1 (pin 3)
   attachInterrupt(1, doEncoderB, CHANGE);
   // encoder pin on interrupt 4 (pin 7)
-  attachInterrupt(4, doffSwitch, RISING);
+  attachInterrupt(4, dofSwitch, FALLING);
 
   // Initialize LCD Display
   lcd.begin(16, 4);  //need to change to (20, 4) for new screen
@@ -209,6 +202,7 @@ void setup()
   sensors.setResolution(tempSensor, 10); //12 for more accurate model.
   sensors.setWaitForConversion(false);
   fSwitch = digitalRead(fCutoff);
+  if(fSwitch == FALSE) dofSwitch();
   LoadParameters();
   myPID.SetTunings(Kp, Ki, Kd);
 
@@ -263,13 +257,10 @@ void loop()
   }
   if (digitalRead(backButton) == LOW) {
     while (digitalRead(backButton) == LOW) delay(10);
-    //Serial.print("backbutton");
     opState = OFF;
     lcd.clear();
     menu.moveLeft();                //go back to previous menu
   }
-
-  //lcd.clear();
   switch (opState) //run or continue running current state
   {
     case OFF:
@@ -310,9 +301,9 @@ void StartAutoTune()
 // ************************************************
 void SaveParameters()   //i should probably change this to the EEPROMex library at some point, but this works.
 {
-  if (Setpoint != EEPROM_readDouble(SpAddress))
+  if (mySetpoint != EEPROM_readDouble(SpAddress))
   {
-    EEPROM_writeDouble(SpAddress, Setpoint);
+    EEPROM_writeDouble(SpAddress, mySetpoint);
   }
   if (Kp != EEPROM_readDouble(KpAddress))
   {
@@ -382,7 +373,7 @@ void doEncoderB() {
 }
 
 // Interrupt on float switch. Make device safe until fault clears.
-void doffSwitch() {
+void dofSwitch() {
   digitalWrite(RelayPin, LOW);
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
@@ -390,10 +381,10 @@ void doffSwitch() {
   lcd.setCursor(2, 4);
   lcd.print("Water Low!");
   fSwitch = digitalRead(fCutoff);
-  while (fSwitch == TRUE) fSwitch = digitalRead(fCutoff);
-  lcd.clear();
+  while (fSwitch == FALSE) fSwitch = digitalRead(fCutoff);
+  opState = OFF;
   myPID.SetMode(AUTOMATIC);
-  digitalWrite( MOTOR_B_PWM, spinRate); //start pump, but don't bother triggering heater until next pass of RUN
+  loop();
 }
 // ************************************************
 // Load parameters from EEPROM
@@ -401,15 +392,15 @@ void doffSwitch() {
 void LoadParameters()
 {
   // Load from EEPROM
-  Setpoint = EEPROM_readDouble(SpAddress);
+  mySetpoint = EEPROM_readDouble(SpAddress);
   Kp = EEPROM_readDouble(KpAddress);
   Ki = EEPROM_readDouble(KiAddress);
   Kd = EEPROM_readDouble(KdAddress);
 
   // Use defaults if EEPROM values are invalid
-  if (isnan(Setpoint))
+  if (isnan(mySetpoint))
   {
-    Setpoint = 60;
+    mySetpoint = 60;
   }
   if (isnan(Kp))
   {
@@ -430,7 +421,6 @@ void userInput(int menuFlag, float scale, double prior) { //Flag to interperate 
   float numInput;
   boolean inputFlag = true;
   encoderPos = prior / scale;
-  //calculating = true;
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(F("New Input: "));
@@ -452,7 +442,7 @@ void userInput(int menuFlag, float scale, double prior) { //Flag to interperate 
       lcd.setCursor(2, 0);
       switch (menuFlag) {  //case number, first digit: equipment type, second didgit: P,I or D
         case 1:
-          Setpoint = numInput;
+          mySetpoint = numInput;
           break;
         case 2:
           Kp = numInput;
@@ -468,7 +458,6 @@ void userInput(int menuFlag, float scale, double prior) { //Flag to interperate 
       }
     }
   }
-  //calculating = false;
   while (digitalRead(buttonPin) == LOW) delay(10);
   lcd.clear();
 }
@@ -494,13 +483,17 @@ void FinishAutoTune()
 
 void rampS(double roChange)  //where the mathgic happens
 {
+  if(pSetpoint != mySetpoint){
+    pDrive = Input;
+    pSetpoint = mySetpoint;
+  }
   if (millis() > pMillis) { //has enough time actually passed to bother calculating? These Arduino things are fast
     roChange = roChange / 1000; // change rate of change from user friendly seconds to milliseconds
-    if (abs(pDrive - Setpoint) <= roChange * (millis() - pMillis)) { //if the rate of change is going to push the drive past the setpoint, just make it equal the setpoint otherwise it'll oscillate
-      drive = Setpoint;
+    if (abs(pDrive - mySetpoint) <= roChange * (millis() - pMillis)) { //if the rate of change is going to push the drive past the setpoint, just make it equal the setpoint otherwise it'll oscillate
+      drive = mySetpoint;
     }
     else { //If more ramping is required, calculate the change required for the time period passed to keep the rate of change constant, and add it to the drive.
-      if (Setpoint > pDrive) { //possitive direction
+      if (mySetpoint > pDrive) { //possitive direction
         drive = pDrive + (roChange * (millis() - pMillis));
       }
       else {  //negative direction
@@ -509,7 +502,9 @@ void rampS(double roChange)  //where the mathgic happens
     }
     pMillis = millis();
     pDrive = drive;
+    Setpoint = drive;
   }
+  
 }
 
 // ************************************************
@@ -553,6 +548,8 @@ void Off()  //don't run the system whilst it's on the main menu, or anywhere oth
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
   digitalWrite(RelayPin, LOW);  // make sure it is off
+  lcd.setCursor(0, 0);
+  Serial.println(opState);
 }
 
 // ************************************************
@@ -624,7 +621,7 @@ void Run()
   DriveOutput();
   lcd.setCursor(0, 0);
   lcd.print(F("Sp: "));
-  lcd.print(Setpoint);
+  lcd.print(mySetpoint);
   lcd.write(1);
   lcd.print(F("C : "));
   lcd.setCursor(0, 1);
@@ -649,12 +646,14 @@ void Run()
   // periodically log to serial port in csv format
   if (millis() - lastLogTime > logInterval)
   {
+    Serial.print(drive);
+    Serial.print(",");
     Serial.print(Input);
     Serial.print(",");
     Serial.println(Output);
   }
   if (lastReportedPos != encoderPos) {
-    userInput(1, 0.25, Setpoint);
+    userInput(1, 0.25, mySetpoint);
     opState = RUN;
   }
   else if (digitalRead(backButton) == LOW) {
@@ -674,6 +673,7 @@ void menuUseEvent(MenuUseEvent used)
     opState = RUN;      // Prepare to transition to the RUN state
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
+    pDrive = Input;
     windowStartTime = millis();
   }
   else if (used.item == DoAutotune) {
@@ -685,20 +685,14 @@ void menuUseEvent(MenuUseEvent used)
   }
   else if (used.item == DoTuneP) {
     //turn the PID on
-    myPID.SetMode(AUTOMATIC);
-    windowStartTime = millis();
     opState = TUNE_P;
   }
   else if (used.item == DoTuneI) {
     //turn the PID on
-    myPID.SetMode(AUTOMATIC);
-    windowStartTime = millis();
     opState = TUNE_I;
   }
   else if (used.item == DoTuneD) {
     //turn the PID on
-    myPID.SetMode(AUTOMATIC);
-    windowStartTime = millis();
     opState = TUNE_D;
   }
 }
