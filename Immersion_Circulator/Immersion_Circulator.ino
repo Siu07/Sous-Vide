@@ -9,7 +9,7 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 17/11/16
+// Last Updated 08/12/16
 //------------------------------------------------------------------
 
 // PID Library
@@ -180,8 +180,6 @@ void setup()
   attachInterrupt(0, doEncoderA, CHANGE);
   // encoder pin on interrupt 1 (pin 3)
   attachInterrupt(1, doEncoderB, CHANGE);
-  // encoder pin on interrupt 4 (pin 7)
-  attachInterrupt(4, dofSwitch, FALLING);
 
   // Initialize LCD Display
   lcd.begin(16, 4);
@@ -201,7 +199,6 @@ void setup()
   sensors.setResolution(tempSensor, 12); //12 for more accurate model.
   sensors.setWaitForConversion(false);
   fSwitch = digitalRead(fCutoff);
-  if(fSwitch == FALSE) dofSwitch();
   LoadParameters();
   myPID.SetTunings(Kp, Ki, Kd);
 
@@ -246,12 +243,16 @@ void loop()
       menu.moveUp();                  //goto next menu choice
       lastReportedPos = encoderPos;
     }
-    if (digitalRead(buttonPin) == LOW) {
-      while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
-      {
-        menu.use();
-        menu.moveRight();               //Select next menu down or run action
-      }
+  }
+  else {
+    fSwitch = digitalRead(fCutoff);
+    if(fSwitch == FALSE) dofSwitch();
+  }
+  if (digitalRead(buttonPin) == LOW) {
+    while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
+    {
+      menu.use();
+      menu.moveRight();               //Select next menu down or run action
     }
   }
   if (digitalRead(backButton) == LOW) {
@@ -278,7 +279,6 @@ void loop()
       TuneD();
       break;
   }
-
 }
 // ************************************************
 // Start the Auto-Tuning cycle
@@ -645,13 +645,22 @@ void Run()
   // periodically log to serial port in csv format
   if (millis() - lastLogTime > logInterval)
   {
-    //Serial.print(drive);
-    //Serial.print(",");
+    Serial.print("Input: ");
     Serial.print(Input);
-    Serial.print(",");
+    Serial.print(" Output: ");
     Serial.print(Output);
-    Serial.print(",");
-    Serial.println(Setpoint);
+    Serial.print(" Setpoint: ");
+    Serial.print(Setpoint);
+    Serial.print(" mySetpoint: ");
+    Serial.print(mySetpoint);
+    Serial.print(" kP: ");
+    Serial.print(Kp);
+    Serial.print(" Ki: ");
+    Serial.print(Ki);
+    Serial.print(" Kd: ");
+    Serial.println(Kd);
+
+    lastLogTime = millis();
   }
   if (lastReportedPos != encoderPos) {
     userInput(1, 0.25, mySetpoint);
