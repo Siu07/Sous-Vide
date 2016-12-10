@@ -148,7 +148,6 @@ DeviceAddress tempSensor;
 void menuChangeEvent(MenuChangeEvent changed);
 void menuUseEvent(MenuUseEvent used);
 MenuBackend menu = MenuBackend(menuUseEvent, menuChangeEvent);
-MenuItem TurnOff = MenuItem("Off");
 MenuItem DoRun = MenuItem("Run");
 MenuItem DoAutotune = MenuItem("Autotune");
 MenuItem DoTuneP = MenuItem("Tune P");
@@ -212,12 +211,12 @@ void setup()
   myPID.SetOutputLimits(0, WindowSize);
   //Setup Menu
   menu.getRoot().add(DoRun);
-  DoAutotune.addAfter(DoTmpAdj);
+  DoAutotune.addAfter(DoRun);
   DoTuneP.addAfter(DoAutotune);
   DoTuneI.addAfter(DoTuneP);
   DoTuneD.addAfter(DoTuneI);
-  DoRun.addAfter(DoTuneD);
-  DoTmpAdj.addAfter(DoRun);
+  DoTmpAdj.addAfter(DoTuneD);
+  DoRun.addAfter(DoTmpAdj);
 
   DoAutotune.addLeft(DoRun);
   DoTuneD.addLeft(DoRun);
@@ -594,6 +593,11 @@ void TuneP()
 {
   Kp = userInput(Kp, 10, 0, 1000);
   opState = OFF;
+  SaveParameters();
+  myPID.SetTunings(Kp, Ki, Kd);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("RUN"));
   return;
 }
 
@@ -604,6 +608,11 @@ void TuneI()
 {
   Ki = userInput(Ki, 0.1, 0, 1000);
   opState = OFF;
+  SaveParameters();
+  myPID.SetTunings(Kp, Ki, Kd);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("RUN"));
   return;
 }
 
@@ -614,6 +623,11 @@ void TuneD()
 {
   Kd = userInput(Kd, 0.1, 0, 1000);
   opState = OFF;
+  SaveParameters();
+  myPID.SetTunings(Kp, Ki, Kd);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("RUN"));
   return;
 }
 
@@ -621,6 +635,10 @@ void changeTemp()
 {
   tempCal = userInput(tempCal, 0.1, -5, 5);
   opState = OFF;
+  SaveParameters();
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("RUN"));
   return;
 }
 
@@ -630,8 +648,6 @@ void changeTemp()
 void Run()
 {
   // set up the LCD's number of rows and columns:
-  SaveParameters();
-  myPID.SetTunings(Kp, Ki, Kd);
   //digitalWrite( MOTOR_B_DIR, LOW );
   spinRate = 255; //overridden because pump now
   analogWrite( MOTOR_B_PWM, spinRate );
