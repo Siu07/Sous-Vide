@@ -9,7 +9,7 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 08/12/16
+// Last Updated 10/12/16
 //------------------------------------------------------------------
 
 // PID Library
@@ -51,11 +51,13 @@ enum Assignments {  //Unchangeing int's
   encoder0PinA = 2, // interrupt service routine
   encoder0PinB = 3, // interrupt service routine
   fCutoff = 7,      // interrupt service routine
-  MOTOR_B_PWM = 9,  // motor connections
-  SpAddress = 0,    // EEPROM addresses for setpoint persisted data
-  KpAddress = 8,    // EEPROM addresses for Kp persisted data
-  KiAddress = 16,   // EEPROM addresses for Ki persisted data
-  KdAddress = 24,   // EEPROM addresses for Kd persisted data
+  MOTOR_B_PWM = 9,  // Motor speed
+  MOTOR_B_DIR = 8,  // Motor direction
+  SpAddress = 0,    // EEPROM address for setpoint persisted data
+  KpAddress = 8,    // EEPROM address for Kp persisted data
+  KiAddress = 16,   // EEPROM address for Ki persisted data
+  KdAddress = 24,   // EEPROM address for Kd persisted data
+  tempAddress = 32, // EEPROM address for temperature calibration
   WindowSize = 1000 // 1 second Time Proportional Output window
 };
 
@@ -83,6 +85,7 @@ int spinRate = 255;     //motor pwm
 double Kp;
 double Ki;
 double Kd;
+double tempCal; // temperature calibration
 
 //Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
@@ -126,7 +129,7 @@ long lastLogTime = 0;
 // ************************************************
 // States for state machine
 // ************************************************
-enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO};
+enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO, ADJ_TMP};
 operatingState opState = OFF;
 
 // ************************************************
@@ -151,6 +154,7 @@ MenuItem DoAutotune = MenuItem("Autotune");
 MenuItem DoTuneP = MenuItem("Tune P");
 MenuItem DoTuneI = MenuItem("Tune I");
 MenuItem DoTuneD = MenuItem("Tune D");
+MenuItem DoTmpAdj = MenuItem("Temp Calibration");
 
 // ************************************************
 // Setup and diSplay initial screen
@@ -162,6 +166,8 @@ void setup()
   //   //Initalize motor controller
   pinMode( MOTOR_B_PWM, OUTPUT );
   digitalWrite( MOTOR_B_PWM, LOW );
+  pinMode( MOTOR_B_DIR, OUTPUT );
+  digitalWrite( MOTOR_B_DIR, LOW );
 
   // Initialize Relay Control:
   pinMode(RelayPin, OUTPUT);    // Output mode to drive relay
@@ -206,17 +212,19 @@ void setup()
   myPID.SetOutputLimits(0, WindowSize);
   //Setup Menu
   menu.getRoot().add(DoRun);
-  DoAutotune.addAfter(DoRun);
+  DoAutotune.addAfter(DoTmpAdj);
   DoTuneP.addAfter(DoAutotune);
   DoTuneI.addAfter(DoTuneP);
   DoTuneD.addAfter(DoTuneI);
   DoRun.addAfter(DoTuneD);
+  DoTmpAdj.addAfter(DoRun);
 
   DoAutotune.addLeft(DoRun);
   DoTuneD.addLeft(DoRun);
   DoTuneI.addLeft(DoRun);
   DoTuneP.addLeft(DoRun);
   DoRun.addLeft(DoRun);
+  DoTmpAdj.addLeft(DoRun); 
 
   delay(2000);  // Splash screen to make it look super smart and pretend its doing super important background stuff
 
@@ -278,6 +286,9 @@ void loop()
     case TUNE_D:
       TuneD();
       break;
+    case ADJ_TMP:
+      changeTemp();
+      break;
   }
 }
 // ************************************************
@@ -316,6 +327,11 @@ void SaveParameters()   //i should probably change this to the EEPROMex library 
   {
     EEPROM_writeDouble(KdAddress, Kd);
   }
+  if (tempCal != EEPROM_readDouble(tempAddress))
+  {
+    EEPROM_writeDouble(tempAddress, tempCal);
+  }
+
 }
 // ************************************************
 // Write floating point values to EEPROM
@@ -395,6 +411,7 @@ void LoadParameters()
   Kp = EEPROM_readDouble(KpAddress);
   Ki = EEPROM_readDouble(KiAddress);
   Kd = EEPROM_readDouble(KdAddress);
+  tempCal = EEPROM_readDouble(tempAddress);
 
   // Use defaults if EEPROM values are invalid
   if (isnan(mySetpoint))
@@ -413,25 +430,35 @@ void LoadParameters()
   {
     Kd = 0.1;
   }
+  if (isnan(tempCal))
+  {
+    tempCal = 0;
+  }
 }
 
-void userInput(int menuFlag, float scale, double prior) { //Flag to interperate where its from, scale of scroll, default 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
+double userInput(double prior, float scale, int minimum, int maximum) { //Flag to interperate where its from, scale of scroll, default 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
   while (digitalRead(buttonPin) == LOW) delay(10);
   float numInput;
   boolean inputFlag = true;
-  encoderPos = prior / scale;
+  numInput = prior;
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(F("New Input: "));
   lcd.setCursor(0, 1);
   lcd.print(prior);
   while (inputFlag == true) {
-    if (encoderPos < 0 || encoderPos > 1000) encoderPos = 0;
+    if (numInput < minimum) numInput = minimum;
+    if (numInput > maximum) numInput = maximum;
     if (lastReportedPos != encoderPos) {
       lcd.setCursor(0, 1);
       lcd.print(F("                   "));
       lcd.setCursor(0, 1);
-      numInput = encoderPos * scale;
+      if (lastReportedPos < encoderPos){
+        numInput = numInput + scale;
+      }
+      else{
+        numInput = numInput - scale;
+      }
       lcd.print(numInput);
       lastReportedPos = encoderPos;
     }
@@ -439,26 +466,11 @@ void userInput(int menuFlag, float scale, double prior) { //Flag to interperate 
     if (digitalRead(buttonPin) == LOW) {
       inputFlag = false;
       lcd.setCursor(2, 0);
-      switch (menuFlag) {  //case number, first digit: equipment type, second didgit: P,I or D
-        case 1:
-          mySetpoint = numInput;
-          break;
-        case 2:
-          Kp = numInput;
-          break;
-        case 3:
-          Ki = numInput;
-          break;
-        case 4:
-          Kd = numInput;
-          break;
-        default:
-          break;
       }
     }
-  }
   while (digitalRead(buttonPin) == LOW) delay(10);
   lcd.clear();
+  return numInput;
 }
 // ************************************************
 // Return to normal control
@@ -520,6 +532,7 @@ void DoControl()
         Input = sensors.getTempC(tempSensor);
       }
       sensors.requestTemperatures(); // prime the sensor for the next one - but don't wait
+      Input = Input + tempCal;
     }
   }
 
@@ -579,7 +592,7 @@ void DriveOutput()
 // ************************************************
 void TuneP()
 {
-  userInput(2, 10, Kp);
+  Kp = userInput(Kp, 10, 0, 1000);
   opState = OFF;
   return;
 }
@@ -589,7 +602,7 @@ void TuneP()
 // ************************************************
 void TuneI()
 {
-  userInput(3, 0.1, Ki);
+  Ki = userInput(Ki, 0.1, 0, 1000);
   opState = OFF;
   return;
 }
@@ -599,11 +612,17 @@ void TuneI()
 // ************************************************
 void TuneD()
 {
-  userInput(4, 0.1, Kd);
+  Kd = userInput(Kd, 0.1, 0, 1000);
   opState = OFF;
   return;
 }
 
+void changeTemp()
+{
+  tempCal = userInput(tempCal, 0.1, -5, 5);
+  opState = OFF;
+  return;
+}
 
 // ************************************************
 // PID Control State
@@ -663,7 +682,7 @@ void Run()
     lastLogTime = millis();
   }
   if (lastReportedPos != encoderPos) {
-    userInput(1, 0.25, mySetpoint);
+    mySetpoint = userInput(mySetpoint, 0.25, 0, 95);
     opState = RUN;
   }
   else if (digitalRead(backButton) == LOW) {
@@ -705,6 +724,10 @@ void menuUseEvent(MenuUseEvent used)
     //turn the PID on
     opState = TUNE_D;
   }
+  else if (used.item == DoTmpAdj) {
+    //turn the PID on
+    opState = ADJ_TMP;
+  }
 }
 
 void menuChangeEvent(MenuChangeEvent changed)
@@ -725,5 +748,7 @@ void menuChangeEvent(MenuChangeEvent changed)
   else if (changed.to.getName() == DoTuneI) {
   }
   else if (changed.to.getName() == DoTuneD) {
+  }
+  else if (changed.to.getName() == DoTmpAdj) {
   }
 }
