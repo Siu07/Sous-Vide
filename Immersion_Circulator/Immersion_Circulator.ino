@@ -597,7 +597,7 @@ void TuneP()
   myPID.SetTunings(Kp, Ki, Kd);
   lcd.clear();
   lcd.setCursor(0, 1);
-  lcd.print(F("RUN"));
+  lcd.print(F("Tune P"));
   return;
 }
 
@@ -612,7 +612,7 @@ void TuneI()
   myPID.SetTunings(Kp, Ki, Kd);
   lcd.clear();
   lcd.setCursor(0, 1);
-  lcd.print(F("RUN"));
+  lcd.print(F("Tune I"));
   return;
 }
 
@@ -627,7 +627,7 @@ void TuneD()
   myPID.SetTunings(Kp, Ki, Kd);
   lcd.clear();
   lcd.setCursor(0, 1);
-  lcd.print(F("RUN"));
+  lcd.print(F("Tune D"));
   return;
 }
 
@@ -638,7 +638,7 @@ void changeTemp()
   SaveParameters();
   lcd.clear();
   lcd.setCursor(0, 1);
-  lcd.print(F("RUN"));
+  lcd.print(F("Temp Calibration"));
   return;
 }
 
