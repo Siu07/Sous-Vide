@@ -9,12 +9,14 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 10/12/16
+// Last Updated 13/12/16
 //------------------------------------------------------------------
 
 // PID Library
 #include <PID_v1.h>
 #include <PID_AutoTune_v0.h>
+
+// Display
 #include <LiquidCrystal.h>       //LCD 16x4
 
 // Libraries for the DS18B20 Temperature Sensor
@@ -31,10 +33,7 @@
 // Pin definitions
 // ************************************************
 
-//Float switch
-boolean fSwitch = TRUE; //start in safe mode
-
-// Rotary Encoder vars
+// Rotary Encoder varibles
 boolean A_set = false;
 boolean B_set = false;
 static boolean rotating = false;    // debounce management
@@ -48,8 +47,6 @@ enum Assignments {  //Unchangeing int's
   backButton = 6,   // back
   RelayPin = 21,    // Output Relay
   ONE_WIRE_BUS = 20,// One-Wire Temperature Sensor
-  encoder0PinA = 2, // interrupt service routine
-  encoder0PinB = 3, // interrupt service routine
   fCutoff = 7,      // interrupt service routine
   MOTOR_B_PWM = 9,  // Motor speed
   MOTOR_B_DIR = 8,  // Motor direction
@@ -58,6 +55,9 @@ enum Assignments {  //Unchangeing int's
   KiAddress = 16,   // EEPROM address for Ki persisted data
   KdAddress = 24,   // EEPROM address for Kd persisted data
   tempAddress = 32, // EEPROM address for temperature calibration
+  rampAddress = 40, // EEPROM address for ramp soak on/off
+  rateAddress = 48, // EEPROM address for ramp soak rate of change
+  circAddress = 56, // EEPROM address for circulator pump speed
   WindowSize = 1000 // 1 second Time Proportional Output window
 };
 
@@ -66,17 +66,18 @@ enum Assignments {  //Unchangeing int's
 // ************************************************
 
 //Define Variables we'll be connecting to
-double mySetpoint; //only changes with user input
-double Setpoint;  //ramping setpoint
-double Input;
-double Output;
+double Setpoint; //only changes with user input
+double Input;   //current temperature
+double Output;   //Replay on-time
 volatile long onTime = 0;   // output relay drive time
 
 //define ramp soak varibles
 double pMillis; //previous time calculations were performed
 double drive;  //your ramping setpoint, set by calculation
-double pDrive; // previous output of ramping setpoint
-double pSetpoint; //detect if the setpoint has changed
+double pDrive = 0; // previous output of ramping setpoint
+double pSetpoint = 0; //detect if the setpoint has changed
+double rampRate = 0.1;  //Ramp/Soak rate
+boolean rampSoak = 1; //0=off 1=on
 
 //pump motor PWM (always 100% for now)
 int spinRate = 255;     //motor pwm
@@ -88,7 +89,7 @@ double Kd;
 double tempCal; // temperature calibration
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+PID myPID(&Input, &Output, &drive, Kp, Ki, Kd, DIRECT);
 
 unsigned long windowStartTime;
 
@@ -98,8 +99,8 @@ unsigned long windowStartTime;
 byte ATuneModeRemember = 2;
 
 double aTuneStep = 500;
-double aTuneNoise = 1;
-unsigned int aTuneLookBack = 20;
+double aTuneNoise = 0.5;
+unsigned int aTuneLookBack = 60;
 
 boolean tuning = false;
 
@@ -129,7 +130,7 @@ long lastLogTime = 0;
 // ************************************************
 // States for state machine
 // ************************************************
-enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO, ADJ_TMP};
+enum operatingState { OFF = 0, RUN, TUNE_P, TUNE_I, TUNE_D, AUTO, ADJ_TMP, RAMP, RATE, CIRC};
 operatingState opState = OFF;
 
 // ************************************************
@@ -154,6 +155,9 @@ MenuItem DoTuneP = MenuItem("Tune P");
 MenuItem DoTuneI = MenuItem("Tune I");
 MenuItem DoTuneD = MenuItem("Tune D");
 MenuItem DoTmpAdj = MenuItem("Temp Calibration");
+MenuItem DoRamp = MenuItem("Toggle Ramp Soak");
+MenuItem DoRate = MenuItem("Ramp/Soak Rate");
+MenuItem DoCirc = MenuItem("Circulator Speed");
 
 // ************************************************
 // Setup and diSplay initial screen
@@ -182,7 +186,7 @@ void setup()
   pinMode(backButton, INPUT_PULLUP);
 
   // encoder pin on interrupt 0 (pin 2)
-  attachInterrupt(0, doEncoderA, CHANGE);
+  attachInterrupt(0, doEncoderA, CHANGE);   //rotary encoder
   // encoder pin on interrupt 1 (pin 3)
   attachInterrupt(1, doEncoderB, CHANGE);
 
@@ -190,7 +194,6 @@ void setup()
   lcd.begin(16, 4);
   lcd.createChar(1, degree); // create degree symbol from the binary
 
-  //lcd.print(F("    Home"));
   lcd.setCursor(0, 1);
   lcd.print(F("   Sous Vide!")); //splash screen
 
@@ -201,13 +204,12 @@ void setup()
     lcd.setCursor(0, 1);
     lcd.print(F("Sensor Error")); //alternate bad times splash screen
   }
-  sensors.setResolution(tempSensor, 12); //12 for more accurate model.
+  sensors.setResolution(tempSensor, 12);
   sensors.setWaitForConversion(false);
-  fSwitch = digitalRead(fCutoff);
   LoadParameters();
   myPID.SetTunings(Kp, Ki, Kd);
 
-  myPID.SetSampleTime(1000);
+  myPID.SetSampleTime(1000);    //compute PID once per second
   myPID.SetOutputLimits(0, WindowSize);
   //Setup Menu
   menu.getRoot().add(DoRun);
@@ -216,7 +218,10 @@ void setup()
   DoTuneI.addAfter(DoTuneP);
   DoTuneD.addAfter(DoTuneI);
   DoTmpAdj.addAfter(DoTuneD);
-  DoRun.addAfter(DoTmpAdj);
+  DoRamp.addAfter(DoTmpAdj);
+  DoRate.addAfter(DoRamp);
+  DoCirc.addAfter(DoRate);
+  DoRun.addAfter(DoCirc);
 
   DoAutotune.addLeft(DoRun);
   DoTuneD.addLeft(DoRun);
@@ -224,12 +229,15 @@ void setup()
   DoTuneP.addLeft(DoRun);
   DoRun.addLeft(DoRun);
   DoTmpAdj.addLeft(DoRun); 
+  DoRamp.addLeft(DoRun);
+  DoRate.addLeft(DoRun);
+  DoCirc.addLeft(DoRun);
 
   delay(2000);  // Splash screen to make it look super smart and pretend its doing super important background stuff
 
   menu.moveDown(); //move to main menu
   
-  myPID.SetMode(AUTOMATIC);
+  myPID.SetMode(MANUAL);
 }
 
 // ************************************************
@@ -251,9 +259,8 @@ void loop()
       lastReportedPos = encoderPos;
     }
   }
-  else {
-    fSwitch = digitalRead(fCutoff);
-    if(fSwitch == FALSE) dofSwitch();
+  else {  //read the float switch to ensure the water level is not too low
+    if (digitalRead(fCutoff) == FALSE) dofSwitch();
   }
   if (digitalRead(buttonPin) == LOW) {
     while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
@@ -268,7 +275,7 @@ void loop()
     lcd.clear();
     menu.moveLeft();                //go back to previous menu
   }
-  switch (opState) //run or continue running current state
+  switch (opState) //run new state or continue running current state
   {
     case OFF:
       Off();
@@ -287,6 +294,15 @@ void loop()
       break;
     case ADJ_TMP:
       changeTemp();
+      break;
+    case RAMP:
+      onRamp();
+      break;
+    case RATE:
+      onRate();
+      break;
+    case CIRC:
+      onCirc();
       break;
   }
 }
@@ -310,9 +326,9 @@ void StartAutoTune()
 // ************************************************
 void SaveParameters()   //i should probably change this to the EEPROMex library at some point, but this works.
 {
-  if (mySetpoint != EEPROM_readDouble(SpAddress))
+  if (Setpoint != EEPROM_readDouble(SpAddress))
   {
-    EEPROM_writeDouble(SpAddress, mySetpoint);
+    EEPROM_writeDouble(SpAddress, Setpoint);
   }
   if (Kp != EEPROM_readDouble(KpAddress))
   {
@@ -330,7 +346,18 @@ void SaveParameters()   //i should probably change this to the EEPROMex library 
   {
     EEPROM_writeDouble(tempAddress, tempCal);
   }
-
+  if (rampSoak != EEPROM_readDouble(rampAddress))
+  {
+    EEPROM_writeDouble(rampAddress, rampSoak);
+  }
+  if (rampRate != EEPROM_readDouble(rateAddress))
+  {
+    EEPROM_writeDouble(rateAddress, rampRate);
+  }
+  if (spinRate != EEPROM_readDouble(circAddress))
+  {
+    EEPROM_writeDouble(circAddress, spinRate);
+  }
 }
 // ************************************************
 // Write floating point values to EEPROM
@@ -386,18 +413,21 @@ void doEncoderB() {
   }
 }
 
+// ************************************************
 // Interrupt on float switch. Make device safe until fault clears.
-void dofSwitch() {
+// ************************************************
+void dofSwitch() { 
   digitalWrite(RelayPin, LOW);
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
   lcd.clear();
   lcd.setCursor(2, 4);
   lcd.print("Water Low!");
-  fSwitch = digitalRead(fCutoff);
-  while (fSwitch == FALSE) fSwitch = digitalRead(fCutoff);
+  while (digitalRead(fCutoff) == FALSE) delay(10);
   opState = OFF;
-  myPID.SetMode(AUTOMATIC);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("Run"));
   loop();
 }
 // ************************************************
@@ -406,20 +436,23 @@ void dofSwitch() {
 void LoadParameters()
 {
   // Load from EEPROM
-  mySetpoint = EEPROM_readDouble(SpAddress);
+  Setpoint = EEPROM_readDouble(SpAddress);
   Kp = EEPROM_readDouble(KpAddress);
   Ki = EEPROM_readDouble(KiAddress);
   Kd = EEPROM_readDouble(KdAddress);
   tempCal = EEPROM_readDouble(tempAddress);
+  rampSoak = EEPROM_readDouble(rampAddress);
+  rampRate = EEPROM_readDouble(rampRate);
+  spinRate = EEPROM_readDouble(circAddress);
 
   // Use defaults if EEPROM values are invalid
-  if (isnan(mySetpoint))
+  if (isnan(Setpoint))
   {
-    mySetpoint = 60;
+    Setpoint = 60;
   }
   if (isnan(Kp))
   {
-    Kp = 650;
+    Kp = 320;
   }
   if (isnan(Ki))
   {
@@ -433,8 +466,22 @@ void LoadParameters()
   {
     tempCal = 0;
   }
+  if (isnan(rampSoak))
+  {
+    rampSoak = 1;
+  }
+  if (isnan(rampRate))
+  {
+    rampSoak = 0.1;
+  }
+  if (isnan(spinRate))
+  {
+    rampSoak = 255;
+  }
 }
-
+// ************************************************
+// User input of number using rotary encoder
+// ************************************************
 double userInput(double prior, float scale, int minimum, int maximum) { //Flag to interperate where its from, scale of scroll, default 1 = one scroll =+1, scale of 0.1 = one scroll =+0.1 etc.
   while (digitalRead(buttonPin) == LOW) delay(10);
   float numInput;
@@ -446,8 +493,6 @@ double userInput(double prior, float scale, int minimum, int maximum) { //Flag t
   lcd.setCursor(0, 1);
   lcd.print(prior);
   while (inputFlag == true) {
-    if (numInput < minimum) numInput = minimum;
-    if (numInput > maximum) numInput = maximum;
     if (lastReportedPos != encoderPos) {
       lcd.setCursor(0, 1);
       lcd.print(F("                   "));
@@ -466,6 +511,8 @@ double userInput(double prior, float scale, int minimum, int maximum) { //Flag t
       inputFlag = false;
       lcd.setCursor(2, 0);
       }
+    if (numInput < minimum) numInput = minimum;
+    if (numInput > maximum) numInput = maximum;
     }
   while (digitalRead(buttonPin) == LOW) delay(10);
   lcd.clear();
@@ -491,30 +538,34 @@ void FinishAutoTune()
   SaveParameters();
 }
 
-void rampS(double roChange)  //where the mathgic happens
+void rampS(double roChange)  //where the mathgic happens. roChange = rate of change in seconds.
 {
-  if(pSetpoint != mySetpoint){
-    pDrive = Input;
-    pSetpoint = mySetpoint;
+  if (rampSoak == 0){
+    drive = Setpoint;
   }
-  if (millis() > pMillis) { //has enough time actually passed to bother calculating? These Arduino things are fast
-    roChange = roChange / 1000; // change rate of change from user friendly seconds to milliseconds
-    if (abs(pDrive - mySetpoint) <= roChange * (millis() - pMillis)) { //if the rate of change is going to push the drive past the setpoint, just make it equal the setpoint otherwise it'll oscillate
-      drive = mySetpoint;
+  else{
+    if (pSetpoint != Setpoint){ //if a new setpoint is selected by the user,  ramp/soak from the current temperature
+      drive = Input;
+      pDrive = Input;
+      pSetpoint = Setpoint;
     }
-    else { //If more ramping is required, calculate the change required for the time period passed to keep the rate of change constant, and add it to the drive.
-      if (mySetpoint > pDrive) { //possitive direction
-        drive = pDrive + (roChange * (millis() - pMillis));
+    if (millis() > pMillis) { //has enough time actually passed to bother calculating? These Arduino things are fast
+      roChange = roChange / 1000; // change rate of change from user friendly seconds to milliseconds
+      if (abs(pDrive - Setpoint) <= roChange * (millis() - pMillis)) { //if the rate of change is going to push the drive past the setpoint, just make it equal the setpoint otherwise it'll oscillate
+        drive = Setpoint;
       }
-      else {  //negative direction
-        drive = pDrive - (roChange * (millis() - pMillis));
+      else { //If more ramping is required, calculate the change required for the time period passed to keep the rate of change constant, and add it to the drive.
+        if (Setpoint > pDrive) { //possitive direction
+          drive = pDrive + (roChange * (millis() - pMillis));
+        }
+        else {  //negative direction
+          drive = pDrive - (roChange * (millis() - pMillis));
+        }
       }
-    }
-    pMillis = millis();
-    pDrive = drive;
-    Setpoint = drive;
+      pMillis = millis();
+      pDrive = drive;
+    } 
   }
-  
 }
 
 // ************************************************
@@ -559,8 +610,6 @@ void Off()  //don't run the system whilst it's on the main menu, or anywhere oth
   digitalWrite( MOTOR_B_PWM, LOW );
   myPID.SetMode(MANUAL);
   digitalWrite(RelayPin, LOW);  // make sure it is off
-  lcd.setCursor(0, 0);
-  Serial.println(opState);
 }
 
 // ************************************************
@@ -568,7 +617,7 @@ void Off()  //don't run the system whilst it's on the main menu, or anywhere oth
 // ************************************************
 void DriveOutput()
 {
-  rampS(0.1); //ramp 0.1c per second. Min 3L, 40c temp rise, 1.5kW = ~6min's = 0.11 max ramp
+  rampS(rampRate); //ramp 0.1c per second. Min 2L, 40c temp rise, 1.5kW = ~6min's = 0.11 max ramp
   long now = millis();
   // Set the output
   // "on time" is proportional to the PID output
@@ -598,7 +647,6 @@ void TuneP()
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print(F("Tune P"));
-  return;
 }
 
 // ************************************************
@@ -613,7 +661,6 @@ void TuneI()
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print(F("Tune I"));
-  return;
 }
 
 // ************************************************
@@ -628,7 +675,6 @@ void TuneD()
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print(F("Tune D"));
-  return;
 }
 
 void changeTemp()
@@ -639,7 +685,36 @@ void changeTemp()
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print(F("Temp Calibration"));
-  return;
+}
+
+void onRamp()
+{
+  rampSoak = userInput(rampSoak, 1, 0, 1);
+  opState = OFF;
+  SaveParameters();
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("Toggle Ramp Soak"));
+}
+
+void onRate()
+{
+  rampRate = userInput(rampRate, 0.01, 0, 10);
+  opState = OFF;
+  SaveParameters();
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("Ramp/Soak Rate"));
+}
+void onCirc()
+{
+  spinRate = userInput(map(spinRate,0 , 255, 0, 100), 1, 0, 100);  //user friendly 0-100 
+  spinRate = map(spinRate, 0, 100, 0, 255); //convert back to arduino friendly
+  opState = OFF;
+  SaveParameters();
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(F("Circulator Speed"));
 }
 
 // ************************************************
@@ -655,7 +730,7 @@ void Run()
   DriveOutput();
   lcd.setCursor(0, 0);
   lcd.print(F("Sp: "));
-  lcd.print(mySetpoint);
+  lcd.print(Setpoint);
   lcd.write(1);
   lcd.print(F("C : "));
   lcd.setCursor(0, 1);
@@ -686,8 +761,14 @@ void Run()
     Serial.print(Output);
     Serial.print(" Setpoint: ");
     Serial.print(Setpoint);
-    Serial.print(" mySetpoint: ");
-    Serial.print(mySetpoint);
+    Serial.print(" Drive: ");
+    Serial.print(drive);
+    Serial.print(" spinRate: ");
+    Serial.print(spinRate);
+    Serial.print(" rampSoak: ");
+    Serial.print(rampSoak);
+    Serial.print(" rampRate: ");
+    Serial.print(rampRate);
     Serial.print(" kP: ");
     Serial.print(Kp);
     Serial.print(" Ki: ");
@@ -698,7 +779,7 @@ void Run()
     lastLogTime = millis();
   }
   if (lastReportedPos != encoderPos) {
-    mySetpoint = userInput(mySetpoint, 0.25, 0, 95);
+    Setpoint = userInput(Setpoint, 0.25, 0, 95);
     opState = RUN;
   }
   else if (digitalRead(backButton) == LOW) {
@@ -718,6 +799,7 @@ void menuUseEvent(MenuUseEvent used)
     opState = RUN;      // Prepare to transition to the RUN state
     //turn the PID on
     myPID.SetMode(AUTOMATIC);
+    drive = Input;
     pDrive = Input;
     windowStartTime = millis();
   }
@@ -729,20 +811,25 @@ void menuUseEvent(MenuUseEvent used)
     StartAutoTune();
   }
   else if (used.item == DoTuneP) {
-    //turn the PID on
     opState = TUNE_P;
   }
   else if (used.item == DoTuneI) {
-    //turn the PID on
     opState = TUNE_I;
   }
   else if (used.item == DoTuneD) {
-    //turn the PID on
     opState = TUNE_D;
   }
   else if (used.item == DoTmpAdj) {
-    //turn the PID on
     opState = ADJ_TMP;
+  }
+  else if (used.item == DoRamp) {
+    opState = RAMP;
+  }
+  else if (used.item == DoRate) {
+    opState = RATE;
+  }
+  else if (used.item == DoCirc) {
+    opState = CIRC;
   }
 }
 
@@ -760,11 +847,36 @@ void menuChangeEvent(MenuChangeEvent changed)
   else if (changed.to.getName() == DoAutotune) {
   }
   else if (changed.to.getName() == DoTuneP) {
+    lcd.setCursor(0, 2);
+    lcd.print(Kp);
   }
   else if (changed.to.getName() == DoTuneI) {
+    lcd.setCursor(0, 2);
+    lcd.print(Ki);
   }
   else if (changed.to.getName() == DoTuneD) {
+    lcd.setCursor(0, 2);
+    lcd.print(Kd);
   }
   else if (changed.to.getName() == DoTmpAdj) {
+    lcd.setCursor(0, 2);
+    lcd.print(tempCal);
   }
+  else if (changed.to.getName() == DoRamp) {
+    lcd.setCursor(0, 2);
+    lcd.print(rampSoak);
+    lcd.setCursor(0, 3);
+    lcd.print(F("0 = OFF   1 = ON"));
+  }
+  else if (changed.to.getName() == DoRate) {
+    lcd.setCursor(0, 2);
+    lcd.print(rampRate);
+    lcd.setCursor(0, 3);
+    lcd.write(1);
+    lcd.print(F("C per Second"));
+  }
+  else if (changed.to.getName() == DoCirc) {
+    lcd.setCursor(0, 2);
+    lcd.print(map(spinRate,0 , 255, 0, 100));
+      }
 }
