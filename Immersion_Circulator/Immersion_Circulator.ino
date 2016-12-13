@@ -723,8 +723,6 @@ void onCirc()
 void Run()
 {
   // set up the LCD's number of rows and columns:
-  //digitalWrite( MOTOR_B_DIR, LOW );
-  spinRate = 255; //overridden because pump now
   analogWrite( MOTOR_B_PWM, spinRate );
   DoControl();
   DriveOutput();
