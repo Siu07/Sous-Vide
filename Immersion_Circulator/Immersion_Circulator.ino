@@ -200,8 +200,7 @@ MenuItem DoCirc = MenuItem("Circulator Speed");
 void setup()
 {
   Serial.begin(9600);
-
-
+ 
   //   //Initalize motor controller
   pinMode( MOTOR_B_PWM, OUTPUT );
   digitalWrite( MOTOR_B_PWM, LOW );
@@ -306,17 +305,18 @@ void loop()
       menu.moveUp();                  //goto next menu choice
       lastReportedPos = encoderPos;
     }
+    if (digitalRead(buttonPin) == LOW) {
+      while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
+      {
+        menu.use();
+        menu.moveRight();               //Select next menu down or run action
+      }
+    }
   }
   else {  //read the float switch to ensure the water level is not too low
     if (digitalRead(fCutoff) == FALSE) dofSwitch();
   }
-  if (digitalRead(buttonPin) == LOW) {
-    while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
-    {
-      menu.use();
-      menu.moveRight();               //Select next menu down or run action
-    }
-  }
+
   if (digitalRead(backButton) == LOW) {
     while (digitalRead(backButton) == LOW) delay(10);
     opState = OFF;
@@ -496,7 +496,7 @@ void LoadParameters()
   Kd = EEPROM_readDouble(KdAddress);
   tempCal = EEPROM_readDouble(tempAddress);
   rampSoak = EEPROM_readDouble(rampAddress);
-  rampRate = EEPROM_readDouble(rampRate);
+  rampRate = EEPROM_readDouble(rampAddress);
   spinRate = EEPROM_readDouble(circAddress);
 
 
@@ -527,11 +527,11 @@ void LoadParameters()
   }
   if (isnan(rampRate))
   {
-    rampSoak = 0.1;
+    rampRate = 0.1;
   }
   if (isnan(spinRate))
   {
-    rampSoak = 255;
+    spinRate = 255;
   }
 }
 // ************************************************
@@ -794,8 +794,6 @@ void onCirc()
 void Run()
 {
   // set up the LCD's number of rows and columns:
-  //digitalWrite( MOTOR_B_DIR, LOW );
-  spinRate = 255; //overridden because pump now
   analogWrite( MOTOR_B_PWM, spinRate );
   DoControl();
   DriveOutput();
@@ -817,26 +815,31 @@ void Run()
   lcd.print(F("In: "));
   lcd.print(Input);
   lcd.write(1);
-  lcd.print(F("C"));
+  lcd.print(F("C     "));
   lcd.setCursor(0, 2);
   lcd.print(F("Out:"));
   float pct = map(Output, 0, WindowSize, 0, 1000); //percentage drive to heater
   lcd.setCursor(4, 2);
   lcd.print(F("     "));
-  lcd.setCursor(9, 2);
+  lcd.setCursor(4, 2);
   lcd.print(pct / 10);
   lcd.print("%");
-  lcd.setCursor(0, 4);
+  lcd.setCursor(0, 3);
   lcd.print(F("T:  "));
   lcd.print(F("            "));
-  lcd.setCursor(0, 6);
+  lcd.setCursor(4, 3);
   lcd.print(hour()+(day()*24)-24);
   lcd.print(F("H "));
   lcd.print(minute());
   lcd.print("M ");
   lcd.print(second());
   lcd.print("S");
-    
+  if (digitalRead(buttonPin) == LOW) {
+    while (digitalRead(buttonPin) == LOW) delay(10);  //hold code until input is done
+    {
+      setTime(0,0,0,1,1,2010);
+    }
+  }  
   // periodically log to serial port in csv format
   if (millis() - lastLogTime > logInterval)
   {
