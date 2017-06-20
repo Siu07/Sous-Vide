@@ -108,7 +108,7 @@ double tempCal; // temperature calibration
 
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &drive, Kp, Ki, Kd, DIRECT);
+PID myPID(&Input, &Output, &drive, Kp, Ki, Kd, P_ON_M, DIRECT);
 
 
 unsigned long windowStartTime;
