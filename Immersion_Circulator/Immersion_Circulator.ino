@@ -120,8 +120,8 @@ unsigned long windowStartTime;
 byte ATuneModeRemember = 2;
 
 
-double aTuneStep = 500;
-double aTuneNoise = 0.5;
+double aTuneStep = 5;
+double aTuneNoise = 0.1;
 unsigned int aTuneLookBack = 60;
 
 
