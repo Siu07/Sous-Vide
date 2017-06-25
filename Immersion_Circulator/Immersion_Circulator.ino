@@ -9,7 +9,7 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 15/12/16
+// Last Updated 25/06/17
 //------------------------------------------------------------------
 
 
@@ -657,10 +657,10 @@ void DoControl()
   else // Execute control algorithm
   {
     myPID.Compute();
-    if (Input+5 < Setpoint){
+    if (Input+7 < Setpoint){
       Output = 1000;
     }
-    else if (Input-5 > Setpoint) {
+    else if (Input-7 > Setpoint) {
       Output = 0;
     }
   }
