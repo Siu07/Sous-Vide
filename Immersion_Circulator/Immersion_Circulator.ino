@@ -656,10 +656,13 @@ void DoControl()
   }
   else // Execute control algorithm
   {
-    myPID.Compute();
+    if (abs(Input-Setpoint)>5){
+      Output = 1000;
+    }
+    else {
+      myPID.Compute();
+    }
   }
-
-
   // Time Proportional relay state is updated regularly via timer interrupt.
   onTime = Output;
 }
