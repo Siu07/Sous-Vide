@@ -657,8 +657,11 @@ void DoControl()
   else // Execute control algorithm
   {
     myPID.Compute();
-    if (abs(Input-Setpoint)>5){
+    if (Input+5 < Setpoint){
       Output = 1000;
+    }
+    else if (Input-5 > Setpoint) {
+      Output = 0;
     }
   }
   // Time Proportional relay state is updated regularly via timer interrupt.
