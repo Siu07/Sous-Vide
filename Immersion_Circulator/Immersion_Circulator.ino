@@ -9,7 +9,7 @@
 //
 // GNU GENERAL PUBLIC LICENSE v3
 //
-// Last Updated 25/06/17
+// Last Updated 28/08/17
 //------------------------------------------------------------------
 
 
@@ -817,7 +817,7 @@ void Run()
   }
   lcd.setCursor(0, 1);
   lcd.print(F("In: "));
-  lcd.print(Input);
+  lcd.print(round((Input*10)/10));
   lcd.write(1);
   lcd.print(F("C     "));
   lcd.setCursor(0, 2);
