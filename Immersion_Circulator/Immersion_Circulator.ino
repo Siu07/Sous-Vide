@@ -1,6 +1,5 @@
 //-------------------------------------------------------------------
 // Sous Vide Controller
-// Created by SIU07CRD
 //
 // Credit to:
 // Bill Earl - for Adafruit Industries Sous Vide Controller
